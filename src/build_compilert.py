@@ -4,6 +4,9 @@ from os import PathLike
 from prepare_clang import prepare_clang_path, clang_src_path
 from sysroot_creator import triple_list as sysroot_triple_list
 
+
+from PackageBuilder import PackageBuilder
+
 WASI_TRIPLES = ["wasm32-wasip1", "wasm32-wasip2", "wasm32-wasip1-threads"]
 triple_list = sysroot_triple_list + WASI_TRIPLES
 
