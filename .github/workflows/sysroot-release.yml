@@ -1,0 +1,86 @@
+name: Build and release sysroot
+
+run-name: Build sysroot GCC ${{ inputs.gcc_version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcc_version:
+        description: GCC version
+        required: true
+        default: 15.2.0
+        type: choice
+        options:
+          - 15.2.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sysroot-gcc-${{ inputs.gcc_version }}-full
+  cancel-in-progress: false
+
+jobs:
+  build-verify-release:
+    name: Build, verify, and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GCC_VERSION: ${{ inputs.gcc_version }}
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            clang \
+            cmake \
+            lld \
+            ninja-build \
+            qemu-user \
+            wine \
+            xz-utils
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Build sysroot
+        run: |
+          python src/sysroot_creator.py \
+            --gcc-version "${GCC_VERSION}" \
+            --arch x86_64
+
+      - name: Verify every target with QEMU and Wine
+        run: python src/sysroot_verify.py
+
+      - name: Check release archive
+        run: |
+          archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
+          test -s "${archive}"
+          xz --test "${archive}"
+          sha256sum "${archive}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="sysroot-gcc${GCC_VERSION}-full"
+          archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${archive}" --clobber
+          else
+            gh release create "${tag}" "${archive}" \
+              --target "$(git rev-parse HEAD)" \
+              --title "${tag}" \
+              --generate-notes
+          fi

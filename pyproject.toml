@@ -1,0 +1,16 @@
+[project]
+name = "llvm-builder"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "python-shell>=1.1.0",
+]
+
+
+[[tool.uv.index]]
+name = "bsoftpay"
+url = "https://maven.bsoftpay.com/repository/pip-public/simple"
+default = true
