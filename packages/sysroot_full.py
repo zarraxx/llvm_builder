@@ -65,7 +65,8 @@ QEMU_COMMANDS = {
 PACKAGE_DIR = Path(__file__).resolve().parent
 SAMPLE_SOURCE_DIR = PACKAGE_DIR / "samples"
 TOOLCHAIN_FILE = SAMPLE_SOURCE_DIR / "toolchain.cmake"
-DEST_DIR = builder.output_dir / f"{__PACKAGE_NAME__}-{__PACKAGE_VERSION__}"
+BUNDLE_DIR_NAME = f"{__PACKAGE_NAME__}-gcc{GCC_VERSION}"
+DEST_DIR = builder.output_dir / BUNDLE_DIR_NAME
 VERIFY_BUILD_DIR = builder.build_dir / f"{__PACKAGE_NAME__}-verify"
 VERIFY_OUTPUT_DIR = builder.output_dir / f"{__PACKAGE_NAME__}-verify"
 
@@ -138,8 +139,8 @@ def verify() -> None:
 
 
 def package() -> None:
-    archive = builder.output_dir / f"{__PACKAGE_NAME__}-gcc{GCC_VERSION}.tar.xz"
-    Shell.tar("caf", archive, "-C", DEST_DIR, ".")
+    archive = builder.output_dir / f"{BUNDLE_DIR_NAME}.tar.xz"
+    Shell.tar("caf", archive, "-C", builder.output_dir, BUNDLE_DIR_NAME)
     print(f"Created {archive}")
 
 

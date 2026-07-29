@@ -84,8 +84,10 @@ jobs:
       - name: Check release archive
         run: |
           archive="dist/sysroot_full-gcc${GCC_VERSION}.tar.xz"
+          archive_root="sysroot_full-gcc${GCC_VERSION}/"
           test -s "${archive}"
           xz --test "${archive}"
+          test "$(tar -tf "${archive}" | sed -n '1p')" = "${archive_root}"
           sha256sum "${archive}" | tee "${archive}.sha256"
 
       - name: Upload workflow artifact
