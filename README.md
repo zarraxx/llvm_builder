@@ -10,7 +10,7 @@ uv run python3 src/BuilderRunner.py packages/sysroot_full.py \
 
 # 构建 compiler-rt builtins（自动下载对应版本的 sysroot_full release）
 uv run python3 src/BuilderRunner.py packages/compiler_rt_builtins.py \
-  -DGCC_VERSION=15.2.0 -DLLVM_VERSION=22.1.8
+  -DLLVM_VERSION=22.1.8
 
 # 从 sysroot_full release 裁剪、验证并打包 thin sysroot
 uv run python3 src/BuilderRunner.py packages/sysroot_thin.py \

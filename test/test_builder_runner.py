@@ -185,6 +185,37 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
     assert module._sysroot_dir(triple) == module.SYSROOT_DIR
 
 
+def test_compiler_rt_builtins_packages_versioned_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project_root = Path(__file__).resolve().parents[1]
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "compiler_rt_builtins.py",
+        builder_type=FakeBuilder,
+        builder_kwargs={"llvm_version": "22.1.8"},
+    )
+    module = runner.load_package_script({"LLVM_VERSION": "22.1.8", "__sys_argv__": []})
+    tar_calls = []
+    monkeypatch.setattr(module.Shell, "tar", lambda *args: tar_calls.append(args))
+
+    module.package()
+
+    archive = (
+        runner.package_builder.output_dir / "compiler_rt_builtins-llvm22.1.8.tar.xz"
+    )
+    assert module.OUTPUT_DIR.name == "compiler_rt_builtins-llvm22.1.8"
+    assert tar_calls == [
+        (
+            "caf",
+            archive,
+            "-C",
+            runner.package_builder.output_dir,
+            "compiler_rt_builtins-llvm22.1.8",
+        )
+    ]
+
+
 @pytest.mark.parametrize(
     ("package_name", "target"),
     [

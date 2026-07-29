@@ -32,7 +32,7 @@ COMPILER_RT_LIB_DIR = Path(
     env(
         "COMPILER_RT_LIB_DIR",
         builder.output_dir
-        / "compiler-rt"
+        / f"compiler_rt_builtins-llvm{builder.llvm_version}"
         / "lib"
         / "clang"
         / builder.llvm_major_version

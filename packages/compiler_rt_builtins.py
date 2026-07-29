@@ -21,6 +21,7 @@ GCC_VERSION = str(env("GCC_VERSION", "15.2.0"))
 
 __PACKAGE_NAME__ = "compiler_rt_builtins"
 __PACKAGE_VERSION__ = LLVM_VERSION
+BUNDLE_DIR_NAME = f"{__PACKAGE_NAME__}-llvm{LLVM_VERSION}"
 
 SYSROOT_TARGETS = (
     "aarch64-unknown-linux-gnu",
@@ -46,7 +47,7 @@ SYSROOT_DIR = Path(
     )
 ).resolve()
 BUILD_ROOT = builder.build_dir / f"compiler-rt-{LLVM_VERSION}"
-OUTPUT_DIR = builder.output_dir / "compiler-rt"
+OUTPUT_DIR = builder.output_dir / BUNDLE_DIR_NAME
 
 llvm_project = source(
     name="llvm-project",
@@ -98,6 +99,12 @@ def install() -> None:
             ["--target", "install-builtins"],
             build_dir=BUILD_ROOT / triple,
         )
+
+
+def package() -> None:
+    archive = builder.output_dir / f"{BUNDLE_DIR_NAME}.tar.xz"
+    Shell.tar("caf", archive, "-C", builder.output_dir, BUNDLE_DIR_NAME)
+    print(f"Created {archive}")
 
 
 def _selected_targets() -> list[str]:
