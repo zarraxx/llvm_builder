@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -223,6 +224,7 @@ def test_sysroot_package_builds_unified_layout(tmp_path: Path):
         if triple == module.MINGW_TRIPLE:
             for source_dir in (
                 source_prefix / "sysroot" / "usr" / triple / "include",
+                source_prefix / "sysroot" / "usr" / triple / "bin",
                 source_prefix / "sysroot" / "usr" / triple / "lib",
                 source_prefix / "sysroot" / "usr" / triple / "lib32",
                 source_prefix / "sysroot" / "lib",
@@ -234,6 +236,20 @@ def test_sysroot_package_builds_unified_layout(tmp_path: Path):
             (
                 source_prefix / "sysroot" / "usr" / triple / "include" / "stdio.h"
             ).write_text("", encoding="utf-8")
+            (
+                source_prefix
+                / "sysroot"
+                / "usr"
+                / triple
+                / "bin"
+                / "libwinpthread-1.dll"
+            ).write_text("", encoding="utf-8")
+            (source_prefix / "sysroot" / "lib" / "runtime64.dll").write_text(
+                "", encoding="utf-8"
+            )
+            (source_prefix / "sysroot" / "lib32" / "runtime32.dll").write_text(
+                "", encoding="utf-8"
+            )
             (gcc_runtime / "libgcc.a").write_text("", encoding="utf-8")
         else:
             (source_prefix / "sysroot").mkdir(parents=True, exist_ok=True)
@@ -257,6 +273,34 @@ def test_sysroot_package_builds_unified_layout(tmp_path: Path):
         / "stdio.h"
     ).is_file()
     assert module.SAMPLE_SOURCE_DIR == project_root / "packages" / "samples"
+
+    mingw_prefix = (
+        module.DEST_DIR / module.MINGW_TRIPLE / "sysroot" / module.MINGW_TRIPLE
+    )
+    assert (mingw_prefix / "bin" / "libwinpthread-1.dll").is_file()
+    assert (mingw_prefix / "bin" / "runtime64.dll").is_file()
+    assert (mingw_prefix / "bin32" / "runtime32.dll").is_file()
+    assert not list((mingw_prefix / "lib").rglob("*.dll"))
+    assert not list((mingw_prefix / "lib32").rglob("*.dll"))
+
+    subprocess_calls = []
+
+    def fake_run(command, **kwargs):
+        subprocess_calls.append((command, kwargs))
+        if command[0] == "winepath":
+            return SimpleNamespace(stdout=f"WIN:{command[-1]}")
+        return SimpleNamespace(stdout="hello x86_64-mingw32\n")
+
+    module.subprocess.run = fake_run
+    mingw_output = module._run_output(
+        module.MINGW_TRIPLE,
+        Path("sample.exe"),
+        module.DEST_DIR / module.MINGW_TRIPLE / "sysroot",
+    )
+    assert mingw_output == "hello x86_64-mingw32"
+    assert subprocess_calls[-1][1]["env"]["WINEPATH"] == (
+        f"WIN:{mingw_prefix / 'bin'};WIN:{mingw_prefix / 'bin32'}"
+    )
 
     target = module.TARGETS[0]
     short_name = module.TARGET_SHORT_NAMES[target]

@@ -205,15 +205,26 @@ def _verify_target(triple: str) -> None:
 def _run_output(triple: str, executable: Path, target_sysroot: Path) -> str:
     run_env = None
     if triple == MINGW_TRIPLE:
-        runtime_dir = target_sysroot / triple / "lib"
-        winepath = subprocess.run(
-            ["winepath", "-w", str(runtime_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+        runtime_dirs = (
+            target_sysroot / triple / "bin",
+            target_sysroot / triple / "bin32",
+        )
+        windows_runtime_dirs = [
+            subprocess.run(
+                ["winepath", "-w", str(runtime_dir)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            for runtime_dir in runtime_dirs
+        ]
         run_env = os.environ.copy()
-        run_env.update({"WINEDEBUG": "-all", "WINEPATH": winepath})
+        run_env.update(
+            {
+                "WINEDEBUG": "-all",
+                "WINEPATH": ";".join(windows_runtime_dirs),
+            }
+        )
         command = ["wine", str(executable)]
     else:
         command = [
@@ -254,13 +265,22 @@ def _build_mingw_sysroot(origin_root: Path, triple: str) -> None:
         destination_include / "c++",
     )
 
-    for lib_dir in ("lib", "lib32"):
+    for bin_dir in ("bin", "bin32"):
+        source_bin = source_sysroot / "usr" / triple / bin_dir
+        destination_bin = destination_prefix / bin_dir
+        if source_bin.exists():
+            _copy_tree(source_bin, destination_bin)
+        else:
+            destination_bin.mkdir(parents=True, exist_ok=True)
+
+    for lib_dir, bin_dir in (("lib", "bin"), ("lib32", "bin32")):
         destination_lib = destination_prefix / lib_dir
         _copy_tree(source_sysroot / "usr" / triple / lib_dir, destination_lib)
         _copy_tree(source_sysroot / lib_dir, destination_lib)
 
         gcc_lib_dir = gcc_runtime if lib_dir == "lib" else gcc_runtime / "32"
         _copy_mingw_gcc_runtime(gcc_lib_dir, destination_lib)
+        _move_mingw_dlls(destination_lib, destination_prefix / bin_dir)
 
 
 def _copy_tree(source: Path, destination: Path) -> None:
@@ -275,3 +295,20 @@ def _copy_mingw_gcc_runtime(source: Path, destination: Path) -> None:
         runtime_file = source / filename
         if runtime_file.exists():
             shutil.copy2(runtime_file, destination / filename)
+
+
+def _move_mingw_dlls(source: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    dll_files = [
+        path
+        for path in source.rglob("*")
+        if path.is_file() and path.suffix.lower() == ".dll"
+    ]
+
+    for dll_file in dll_files:
+        relative_path = dll_file.relative_to(source)
+        destination_file = destination / relative_path
+        destination_file.parent.mkdir(parents=True, exist_ok=True)
+        if destination_file.exists():
+            destination_file.unlink()
+        shutil.move(dll_file, destination_file)
