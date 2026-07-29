@@ -41,9 +41,8 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 set(SAMPLE_LINKER_FLAGS "-fuse-ld=lld")
 
-# Linux sysroots keep GCC's internal runtime and libstdc++ metadata in the
-# common bundle root. Clang's MinGW driver instead finds everything below its
-# target sysroot and intentionally ignores --gcc-toolchain.
+# Linux sysroot 的 GCC runtime 和 libstdc++ 元数据位于 bundle 根目录。
+# MinGW driver 会直接从 target sysroot 下查找，不使用 --gcc-toolchain。
 if(NOT TARGET_TRIPLE MATCHES "mingw")
     if(NOT DEFINED SYSROOT_BUNDLE OR SYSROOT_BUNDLE STREQUAL "")
         message(FATAL_ERROR "SYSROOT_BUNDLE is required for Linux targets")

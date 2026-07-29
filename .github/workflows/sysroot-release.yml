@@ -1,6 +1,6 @@
 name: Build and release sysroot
 
-run-name: Build sysroot GCC ${{ inputs.gcc_version }}
+run-name: Build sysroot GCC ${{ inputs.gcc_version }} with LLVM ${{ inputs.llvm_version }}
 
 on:
   workflow_dispatch:
@@ -12,6 +12,13 @@ on:
         type: choice
         options:
           - 15.2.0
+      llvm_version:
+        description: LLVM version used to verify the sysroot
+        required: true
+        default: 22.1.8
+        type: choice
+        options:
+          - 22.1.8
 
 permissions:
   contents: write
@@ -27,6 +34,7 @@ jobs:
     timeout-minutes: 120
     env:
       GCC_VERSION: ${{ inputs.gcc_version }}
+      LLVM_VERSION: ${{ inputs.llvm_version }}
 
     steps:
       - name: Check out main
@@ -39,35 +47,56 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install build and runtime dependencies
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore source archive cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: >-
+            llvm-builder-${{ runner.os }}-gcc-${{ inputs.gcc_version }}-llvm-${{ inputs.llvm_version }}
+
+      - name: Install verification tools
         run: |
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
-            clang \
             cmake \
-            lld \
             ninja-build \
             qemu-user \
             wine \
             xz-utils
-          python -m pip install --upgrade pip
-          python -m pip install .
 
-      - name: Build sysroot
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Build, verify, and package sysroot
         run: |
-          python src/sysroot_creator.py \
-            --gcc-version "${GCC_VERSION}" \
-            --arch x86_64
-
-      - name: Verify every target with QEMU and Wine
-        run: python src/sysroot_verify.py
+          uv run --frozen python3 src/BuilderRunner.py \
+            packages/sysroot_full.py \
+            -DGCC_VERSION="${GCC_VERSION}" \
+            -DLLVM_VERSION="${LLVM_VERSION}" \
+            -DHOST_ARCH=x86_64
 
       - name: Check release archive
         run: |
           archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
           test -s "${archive}"
           xz --test "${archive}"
-          sha256sum "${archive}"
+          sha256sum "${archive}" | tee "${archive}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot-gcc${{ inputs.gcc_version }}-full
+          path: |
+            dist/sysroot-gcc${{ inputs.gcc_version }}-full.tar.xz
+            dist/sysroot-gcc${{ inputs.gcc_version }}-full.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
 
       - name: Publish GitHub release
         env:
@@ -75,11 +104,12 @@ jobs:
         run: |
           tag="sysroot-gcc${GCC_VERSION}-full"
           archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
+          checksum="${archive}.sha256"
 
           if gh release view "${tag}" >/dev/null 2>&1; then
-            gh release upload "${tag}" "${archive}" --clobber
+            gh release upload "${tag}" "${archive}" "${checksum}" --clobber
           else
-            gh release create "${tag}" "${archive}" \
+            gh release create "${tag}" "${archive}" "${checksum}" \
               --target "$(git rev-parse HEAD)" \
               --title "${tag}" \
               --generate-notes
