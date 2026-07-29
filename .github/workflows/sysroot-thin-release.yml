@@ -1,0 +1,126 @@
+name: Build and release thin sysroot
+
+run-name: >-
+  Build thin sysroot from GCC ${{ inputs.sysroot_full_gcc_version }}
+  with LLVM ${{ inputs.llvm_version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sysroot_full_gcc_version:
+        description: GCC version of the sysroot_full release
+        required: true
+        default: 15.2.0
+        type: choice
+        options:
+          - 15.2.0
+      llvm_version:
+        description: LLVM version used to build compiler-rt and verify the sysroot
+        required: true
+        default: 22.1.8
+        type: choice
+        options:
+          - 22.1.8
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sysroot_thin-gcc-${{ inputs.sysroot_full_gcc_version }}
+  cancel-in-progress: false
+
+jobs:
+  build-verify-release:
+    name: Build, verify, and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GCC_VERSION: ${{ inputs.sysroot_full_gcc_version }}
+      LLVM_VERSION: ${{ inputs.llvm_version }}
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore source archive cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: >-
+            llvm-builder-${{ runner.os }}-thin-gcc-${{ inputs.sysroot_full_gcc_version }}-llvm-${{ inputs.llvm_version }}
+
+      - name: Install verification tools
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            cmake \
+            ninja-build \
+            qemu-user \
+            wine \
+            xz-utils
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Build MinGW compiler-rt builtins
+        run: |
+          uv run --frozen python3 src/BuilderRunner.py \
+            packages/compiler_rt_builtins.py \
+            -DGCC_VERSION="${GCC_VERSION}" \
+            -DLLVM_VERSION="${LLVM_VERSION}" \
+            --target x86_64-w64-mingw32
+
+      - name: Build, verify, and package thin sysroot
+        run: |
+          uv run --frozen python3 src/BuilderRunner.py \
+            packages/sysroot_thin.py \
+            -DGCC_VERSION="${GCC_VERSION}" \
+            -DLLVM_VERSION="${LLVM_VERSION}"
+
+      - name: Check release archive
+        run: |
+          archive="dist/sysroot_thin-gcc${GCC_VERSION}.tar.xz"
+          archive_root="sysroot_thin-gcc${GCC_VERSION}/"
+          test -s "${archive}"
+          xz --test "${archive}"
+          test "$(tar -tf "${archive}" | sed -n '1p')" = "${archive_root}"
+          sha256sum "${archive}" | tee "${archive}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot_thin-gcc${{ inputs.sysroot_full_gcc_version }}
+          path: |
+            dist/sysroot_thin-gcc${{ inputs.sysroot_full_gcc_version }}.tar.xz
+            dist/sysroot_thin-gcc${{ inputs.sysroot_full_gcc_version }}.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="sysroot_thin-gcc${GCC_VERSION}"
+          archive="dist/sysroot_thin-gcc${GCC_VERSION}.tar.xz"
+          checksum="${archive}.sha256"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${archive}" "${checksum}" --clobber
+          else
+            gh release create "${tag}" "${archive}" "${checksum}" \
+              --target "$(git rev-parse HEAD)" \
+              --title "${tag}" \
+              --generate-notes

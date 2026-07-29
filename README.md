@@ -8,8 +8,12 @@
 uv run python3 src/BuilderRunner.py packages/sysroot_full.py \
   -DGCC_VERSION=15.2.0
 
-# 构建 compiler-rt builtins（默认使用上面的 sysroot 输出）
-uv run python3 src/BuilderRunner.py packages/compiler_rt.py \
+# 构建 compiler-rt builtins（自动下载对应版本的 sysroot_full release）
+uv run python3 src/BuilderRunner.py packages/compiler_rt_builtins.py \
+  -DGCC_VERSION=15.2.0 -DLLVM_VERSION=22.1.8
+
+# 从 sysroot_full release 裁剪、验证并打包 thin sysroot
+uv run python3 src/BuilderRunner.py packages/sysroot_thin.py \
   -DGCC_VERSION=15.2.0 -DLLVM_VERSION=22.1.8
 
 # 构建 wasi-libc（默认使用 compiler-rt 输出）

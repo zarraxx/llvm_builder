@@ -11,13 +11,15 @@ if TYPE_CHECKING:
 
     def env(key: str, default_value: Any = None) -> Any: ...
 
+    def prebuild(**kwargs: Any) -> Any: ...
+
     def source(**kwargs: Any) -> Any: ...
 
 
 LLVM_VERSION = str(env("LLVM_VERSION", builder.llvm_version))
 GCC_VERSION = str(env("GCC_VERSION", "15.2.0"))
 
-__PACKAGE_NAME__ = "compiler_rt"
+__PACKAGE_NAME__ = "compiler_rt_builtins"
 __PACKAGE_VERSION__ = LLVM_VERSION
 
 SYSROOT_TARGETS = (
@@ -40,7 +42,7 @@ TARGETS = SYSROOT_TARGETS + WASI_TARGETS
 SYSROOT_DIR = Path(
     env(
         "SYSROOT_DIR",
-        builder.output_dir / f"sysroot_full-{GCC_VERSION}",
+        builder.prebuild_dir / f"sysroot_full-gcc{GCC_VERSION}",
     )
 ).resolve()
 BUILD_ROOT = builder.build_dir / f"compiler-rt-{LLVM_VERSION}"
@@ -53,6 +55,16 @@ llvm_project = source(
     url_fmt=(
         "https://github.com/llvm/llvm-project/releases/download/"
         "llvmorg-{{version}}/{{filename}}"
+    ),
+)
+
+sysroot_full = prebuild(
+    name="sysroot_full",
+    version=GCC_VERSION,
+    filename_fmt="{{name}}-gcc{{version}}.tar.xz",
+    url_fmt=(
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "{{name}}-gcc{{version}}/{{filename}}"
     ),
 )
 
@@ -163,7 +175,8 @@ def _cmake_args(
         )
         return cmake_args
 
-    target_sysroot = SYSROOT_DIR / triple / "sysroot"
+    sysroot_dir = _sysroot_dir(triple)
+    target_sysroot = sysroot_dir / triple / "sysroot"
     if not target_sysroot.is_dir():
         raise FileNotFoundError(f"{triple} 的 sysroot 不存在: {target_sysroot}")
 
@@ -175,7 +188,7 @@ def _cmake_args(
         ]
     )
     if system_name == "Linux":
-        gcc_toolchain_flag = f"--gcc-toolchain={SYSROOT_DIR}"
+        gcc_toolchain_flag = f"--gcc-toolchain={sysroot_dir}"
         cmake_args.extend(
             [
                 f"-DCMAKE_C_FLAGS={gcc_toolchain_flag}",
@@ -185,3 +198,15 @@ def _cmake_args(
         )
 
     return cmake_args
+
+
+def _sysroot_dir(triple: str) -> Path:
+    """Resolve both current rooted releases and legacy rootless archives."""
+    if (SYSROOT_DIR / triple / "sysroot").is_dir():
+        return SYSROOT_DIR
+
+    legacy_root = builder.prebuild_dir
+    if (legacy_root / triple / "sysroot").is_dir():
+        return legacy_root
+
+    return SYSROOT_DIR

@@ -7,11 +7,11 @@ from BuilderRunner import BuilderRunner
 
 
 class FakeDependency:
-    def __init__(self, name: str, version: str, filename: str):
+    def __init__(self, name: str, version: str, filename: str, url: str):
         self.name = name
         self.version = version
         self.filename = filename
-        self.url = f"https://example.test/{filename}"
+        self.url = url
         self.extract_dir: list[str] = []
 
 
@@ -46,12 +46,20 @@ class FakeBuilder:
         self.events.append("prepare")
 
     def _dependency(self, name: str, version: str, filename_fmt: str, **kwargs):
+        url_fmt = kwargs.pop("url_fmt", "https://example.test/{{filename}}")
         filename = filename_fmt.replace("{{name}}", name).replace(
             "{{version}}", version
         )
         for key, value in kwargs.items():
             filename = filename.replace(f"{{{{{key}}}}}", str(value))
-        return FakeDependency(name, version, filename)
+        url = (
+            url_fmt.replace("{{name}}", name)
+            .replace("{{version}}", version)
+            .replace("{{filename}}", filename)
+        )
+        for key, value in kwargs.items():
+            url = url.replace(f"{{{{{key}}}}}", str(value))
+        return FakeDependency(name, version, filename, url)
 
     add_source_dependence = _dependency
     add_tool_dependence = _dependency
@@ -87,7 +95,12 @@ class FakeBuilder:
 
 @pytest.mark.parametrize(
     "package_name",
-    ["sysroot_full.py", "compiler_rt.py", "wasi_libc.py"],
+    [
+        "sysroot_full.py",
+        "sysroot_thin.py",
+        "compiler_rt_builtins.py",
+        "wasi_libc.py",
+    ],
 )
 def test_package_scripts_load_with_runner_injection(
     package_name: str,
@@ -144,10 +157,38 @@ def verify(): events.append('verify')
     assert module.events == ["configure", "build", "verify"]
 
 
+def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
+    project_root = Path(__file__).resolve().parents[1]
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "compiler_rt_builtins.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script({"GCC_VERSION": "15.2.0", "__sys_argv__": []})
+
+    assert module.SYSROOT_DIR == (
+        runner.package_builder.prebuild_dir / "sysroot_full-gcc15.2.0"
+    )
+    assert module.sysroot_full.filename == "sysroot_full-gcc15.2.0.tar.xz"
+    assert module.sysroot_full.url == (
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "sysroot_full-gcc15.2.0/sysroot_full-gcc15.2.0.tar.xz"
+    )
+
+    triple = "x86_64-unknown-linux-gnu"
+    legacy_sysroot = runner.package_builder.prebuild_dir / triple / "sysroot"
+    legacy_sysroot.mkdir(parents=True)
+    assert module._sysroot_dir(triple) == runner.package_builder.prebuild_dir
+
+    rooted_sysroot = module.SYSROOT_DIR / triple / "sysroot"
+    rooted_sysroot.mkdir(parents=True)
+    assert module._sysroot_dir(triple) == module.SYSROOT_DIR
+
+
 @pytest.mark.parametrize(
     ("package_name", "target"),
     [
-        ("compiler_rt.py", "x86_64-unknown-linux-gnu"),
+        ("compiler_rt_builtins.py", "x86_64-unknown-linux-gnu"),
         ("wasi_libc.py", "wasm32-wasip1"),
     ],
 )
@@ -168,7 +209,7 @@ def test_cmake_packages_delegate_lifecycle_to_builder(
 
     module._selected_targets = lambda: [target]
     module._cmake_args = lambda *_args: ["-DTEST_OPTION=ON"]
-    if package_name == "compiler_rt.py":
+    if package_name == "compiler_rt_builtins.py":
         module._llvm_source_dir = lambda: source_dir
         configure_source = source_dir / "compiler-rt" / "lib" / "builtins"
         output_dir = module.OUTPUT_DIR
@@ -193,7 +234,7 @@ def test_cmake_packages_delegate_lifecycle_to_builder(
         [],
         module.BUILD_ROOT / target,
     )
-    if package_name == "compiler_rt.py":
+    if package_name == "compiler_rt_builtins.py":
         assert runner.package_builder.events[3] == (
             "cmake_build",
             ["--target", "install-builtins"],
@@ -339,4 +380,195 @@ def test_sysroot_package_uses_package_name_and_gcc_version(
     module.package()
 
     archive = runner.package_builder.output_dir / "sysroot_full-gcc15.2.0.tar.xz"
-    assert tar_calls == [("caf", archive, "-C", module.DEST_DIR, ".")]
+    assert module.DEST_DIR.name == "sysroot_full-gcc15.2.0"
+    assert tar_calls == [
+        (
+            "caf",
+            archive,
+            "-C",
+            runner.package_builder.output_dir,
+            "sysroot_full-gcc15.2.0",
+        )
+    ]
+
+
+def test_sysroot_thin_keeps_only_dynamic_glibc_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project_root = Path(__file__).resolve().parents[1]
+    triple = "x86_64-unknown-linux-gnu"
+    full_root = tmp_path / "sysroot-full"
+    source_sysroot = full_root / triple / "sysroot"
+    include_dir = source_sysroot / "usr" / "include"
+    runtime_dir = source_sysroot / "lib64"
+    link_dir = source_sysroot / "usr" / "lib64"
+
+    (include_dir / "c++").mkdir(parents=True)
+    (include_dir / "stdio.h").write_text("", encoding="utf-8")
+    (include_dir / "c++" / "vector").write_text("", encoding="utf-8")
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "ld-2.17.so").write_text("loader", encoding="utf-8")
+    (runtime_dir / "ld-linux-x86-64.so.2").symlink_to("ld-2.17.so")
+    (runtime_dir / "libc-2.17.so").write_text("glibc", encoding="utf-8")
+    (runtime_dir / "libc.so.6").symlink_to("libc-2.17.so")
+    (runtime_dir / "libm-2.17.so").write_text("libm", encoding="utf-8")
+    (runtime_dir / "libm.so.6").symlink_to("libm-2.17.so")
+    for forbidden in ("libatomic.so.1", "libgcc_s.so.1", "libstdc++.so.6"):
+        (runtime_dir / forbidden).write_text("gcc", encoding="utf-8")
+
+    link_dir.mkdir(parents=True)
+    for name in (*("crt1.o", "Scrt1.o", "crti.o", "crtn.o"), "libc_nonshared.a"):
+        (link_dir / name).write_text(name, encoding="utf-8")
+    (link_dir / "libc.so").write_text("GROUP ( /lib64/libc.so.6 )", encoding="utf-8")
+    (link_dir / "libm.so").symlink_to("../../lib64/libm.so.6")
+    (link_dir / "libc.a").write_text("static libc", encoding="utf-8")
+    (link_dir / "libm.a").write_text("static libm", encoding="utf-8")
+    (link_dir / "crtbeginS.o").write_text("gcc crt", encoding="utf-8")
+
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_thin.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "SYSROOT_FULL_DIR": str(full_root),
+            "__sys_argv__": ["--target", triple],
+        }
+    )
+
+    module.configure()
+    module.build()
+    module._verify_structure(triple)
+
+    thin_sysroot = module.DEST_DIR / triple / "sysroot"
+    assert {path.name for path in (module.DEST_DIR / triple).iterdir()} == {"sysroot"}
+    assert (thin_sysroot / "usr" / "include" / "stdio.h").is_file()
+    assert not (thin_sysroot / "usr" / "include" / "c++").exists()
+    assert (thin_sysroot / "lib64" / "libc.so.6").is_symlink()
+    assert (thin_sysroot / "usr" / "lib64" / "libc_nonshared.a").is_file()
+    assert not list(thin_sysroot.rglob("libc.a"))
+    assert not list(thin_sysroot.rglob("libm.a"))
+    assert not list(thin_sysroot.rglob("libgcc*"))
+    assert not list(thin_sysroot.rglob("libatomic*"))
+    assert not list(thin_sysroot.rglob("libstdc++*"))
+    assert not list(thin_sysroot.rglob("crtbegin*"))
+
+    tar_calls = []
+    monkeypatch.setattr(module.Shell, "tar", lambda *args: tar_calls.append(args))
+    module.package()
+    archive = runner.package_builder.output_dir / "sysroot_thin-gcc15.2.0.tar.xz"
+    assert module.DEST_DIR.name == "sysroot_thin-gcc15.2.0"
+    assert tar_calls == [
+        (
+            "caf",
+            archive,
+            "-C",
+            runner.package_builder.output_dir,
+            "sysroot_thin-gcc15.2.0",
+        )
+    ]
+
+
+def test_sysroot_thin_keeps_mingw_winsdk_without_gcc_or_cxx(tmp_path: Path):
+    project_root = Path(__file__).resolve().parents[1]
+    triple = "x86_64-w64-mingw32"
+    full_root = tmp_path / "sysroot-full"
+    source_prefix = full_root / triple / "sysroot" / triple
+    include_dir = source_prefix / "include"
+    lib_dir = source_prefix / "lib"
+    bin_dir = source_prefix / "bin"
+
+    (include_dir / "c++").mkdir(parents=True)
+    (include_dir / "windows.h").write_text("", encoding="utf-8")
+    (include_dir / "d3d12.h").write_text("", encoding="utf-8")
+    (include_dir / "c++" / "vector").write_text("", encoding="utf-8")
+    lib_dir.mkdir(parents=True)
+    for name in (
+        "crt2.o",
+        "dllcrt2.o",
+        "libmingw32.a",
+        "libmsvcrt.a",
+        "libkernel32.a",
+        "libgdi32.a",
+        "libole32.a",
+        "libd3d12.a",
+        "libwinpthread.dll.a",
+    ):
+        (lib_dir / name).write_text(name, encoding="utf-8")
+    for name in (
+        "crtbegin.o",
+        "crtfastmath.o",
+        "libatomic.a",
+        "libgcc.a",
+        "libstdc++.a",
+    ):
+        (lib_dir / name).write_text(name, encoding="utf-8")
+    (lib_dir / "libwinpthread-1.dll").write_text("runtime", encoding="utf-8")
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "winsdk-runtime.dll").write_text("runtime", encoding="utf-8")
+    (bin_dir / "libgcc_s_seh-1.dll").write_text("gcc", encoding="utf-8")
+    (source_prefix / "lib32").mkdir()
+    (source_prefix / "bin32").mkdir()
+
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_thin.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "SYSROOT_FULL_DIR": str(full_root),
+            "__sys_argv__": ["--target", triple],
+        }
+    )
+
+    module.configure()
+    module.build()
+    module._verify_structure(triple)
+
+    thin_prefix = module.DEST_DIR / triple / "sysroot" / triple
+    assert (thin_prefix / "include" / "windows.h").is_file()
+    assert (thin_prefix / "include" / "d3d12.h").is_file()
+    assert not (thin_prefix / "include" / "c++").exists()
+    assert (thin_prefix / "lib" / "libole32.a").is_file()
+    assert (thin_prefix / "lib" / "libd3d12.a").is_file()
+    assert (thin_prefix / "lib" / "libwinpthread.dll.a").is_file()
+    assert (thin_prefix / "bin" / "winsdk-runtime.dll").is_file()
+    assert (thin_prefix / "bin" / "libwinpthread-1.dll").is_file()
+    assert not list((thin_prefix / "lib").glob("*.dll"))
+    assert not list(thin_prefix.rglob("libgcc*"))
+    assert not list(thin_prefix.rglob("libatomic*"))
+    assert not list(thin_prefix.rglob("libstdc++*"))
+    assert not list(thin_prefix.rglob("crtbegin*"))
+    assert not list(thin_prefix.rglob("crtfastmath*"))
+    assert not (thin_prefix / "lib32").exists()
+    assert not (thin_prefix / "bin32").exists()
+
+    def fake_cmake_build(cmake_args: list[str], *, build_dir: Path) -> None:
+        runner.package_builder.events.append(("cmake_build", cmake_args, build_dir))
+        output_dir = module.VERIFY_OUTPUT_DIR / triple
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for filename in ("thin_a.dll", "thin_b.dll", "thin_verify.exe"):
+            (output_dir / filename).write_text("", encoding="utf-8")
+
+    runner.package_builder.cmake_build = fake_cmake_build
+    module._run_verify_executable = lambda *_args: module.VERIFY_EXPECTED_OUTPUT
+    builtins_lib = (
+        module.COMPILER_RT_LIB_DIR / "x86_64-w64-windows-gnu" / "libclang_rt.builtins.a"
+    )
+    builtins_lib.parent.mkdir(parents=True)
+    builtins_lib.write_text("builtins", encoding="utf-8")
+    module._verify_target(triple)
+
+    configure_event = runner.package_builder.events[-2]
+    assert configure_event[0] == "cmake_configure"
+    assert "-DTHIN_SYSTEM_NAME=Windows" in configure_event[1]
+    assert f"-DTHIN_BUILTINS_LIB={builtins_lib}" in configure_event[1]
+    assert runner.package_builder.events[-1] == (
+        "cmake_build",
+        [],
+        module.VERIFY_BUILD_DIR / triple,
+    )
