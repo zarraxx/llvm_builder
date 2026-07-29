@@ -321,3 +321,22 @@ def test_sysroot_package_builds_unified_layout(tmp_path: Path):
         [],
         module.VERIFY_BUILD_DIR / target,
     )
+
+
+def test_sysroot_package_uses_package_name_and_gcc_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project_root = Path(__file__).resolve().parents[1]
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_full.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script({"GCC_VERSION": "15.2.0", "__sys_argv__": []})
+    tar_calls = []
+    monkeypatch.setattr(module.Shell, "tar", lambda *args: tar_calls.append(args))
+
+    module.package()
+
+    archive = runner.package_builder.output_dir / "sysroot_full-gcc15.2.0.tar.xz"
+    assert tar_calls == [("caf", archive, "-C", module.DEST_DIR, ".")]

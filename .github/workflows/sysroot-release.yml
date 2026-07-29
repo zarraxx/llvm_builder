@@ -24,7 +24,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sysroot-gcc-${{ inputs.gcc_version }}-full
+  group: sysroot_full-gcc-${{ inputs.gcc_version }}
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
 
       - name: Check release archive
         run: |
-          archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
+          archive="dist/sysroot_full-gcc${GCC_VERSION}.tar.xz"
           test -s "${archive}"
           xz --test "${archive}"
           sha256sum "${archive}" | tee "${archive}.sha256"
@@ -91,10 +91,10 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sysroot-gcc${{ inputs.gcc_version }}-full
+          name: sysroot_full-gcc${{ inputs.gcc_version }}
           path: |
-            dist/sysroot-gcc${{ inputs.gcc_version }}-full.tar.xz
-            dist/sysroot-gcc${{ inputs.gcc_version }}-full.tar.xz.sha256
+            dist/sysroot_full-gcc${{ inputs.gcc_version }}.tar.xz
+            dist/sysroot_full-gcc${{ inputs.gcc_version }}.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
 
@@ -102,8 +102,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="sysroot-gcc${GCC_VERSION}-full"
-          archive="dist/sysroot-gcc${GCC_VERSION}-full.tar.xz"
+          tag="sysroot_full-gcc${GCC_VERSION}"
+          archive="dist/sysroot_full-gcc${GCC_VERSION}.tar.xz"
           checksum="${archive}.sha256"
 
           if gh release view "${tag}" >/dev/null 2>&1; then

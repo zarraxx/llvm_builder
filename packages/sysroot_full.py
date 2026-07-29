@@ -138,7 +138,7 @@ def verify() -> None:
 
 
 def package() -> None:
-    archive = builder.output_dir / f"sysroot-gcc{GCC_VERSION}-full.tar.xz"
+    archive = builder.output_dir / f"{__PACKAGE_NAME__}-gcc{GCC_VERSION}.tar.xz"
     Shell.tar("caf", archive, "-C", DEST_DIR, ".")
     print(f"Created {archive}")
 
