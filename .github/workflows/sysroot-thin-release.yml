@@ -124,3 +124,4 @@ jobs:
               --target "$(git rev-parse HEAD)" \
               --title "${tag}" \
               --generate-notes
+          fi
