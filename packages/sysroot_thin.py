@@ -30,7 +30,7 @@ TARGET_LAYOUTS = {
     "loongarch64-unknown-linux-gnu": ("lib64", "usr/lib64"),
     "mips64el-unknown-linux-gnu": ("lib64", "usr/lib64"),
     "powerpc64le-unknown-linux-gnu": ("lib", "usr/lib"),
-    "riscv64-unknown-linux-gnu": ("lib", "usr/lib"),
+    "riscv64-unknown-linux-gnu": ("lib64/lp64d", "usr/lib64/lp64d"),
     "s390x-ibm-linux-gnu": ("lib64", "usr/lib64"),
     "x86_64-unknown-linux-gnu": ("lib64", "usr/lib64"),
 }
@@ -65,9 +65,9 @@ SYSROOT_ALIASES = {
     "powerpc64le-unknown-linux-gnu": (("lib64", "lib"), ("usr/lib64", "lib")),
 }
 
-# s390x keeps the 64-bit loader in lib64 but uses /lib/ld64.so.1 as its ELF
-# interpreter. The alias must therefore be retained outside the primary libdir.
+# Loaders listed here live outside their target's primary runtime directory.
 EXTRA_ENTRIES = {
+    "riscv64-unknown-linux-gnu": ("lib/ld-linux-riscv64-lp64d.so.1",),
     "s390x-ibm-linux-gnu": ("lib/ld64.so.1",),
 }
 
@@ -386,20 +386,25 @@ def _verify_structure(triple: str) -> None:
     if triple == "riscv64-unknown-linux-gnu":
         multilib_dirs = [
             path
-            for root in (sysroot / runtime_dir, sysroot / link_dir)
+            for root in (sysroot / "lib64", sysroot / "usr" / "lib64")
             if root.is_dir()
             for path in root.iterdir()
-            if path.is_dir()
+            if path.is_dir() and path.name != "lp64d"
         ]
         multilib_dirs.extend(
             path
             for path in (
                 sysroot / "lib32",
-                sysroot / "lib64",
                 sysroot / "usr" / "lib32",
-                sysroot / "usr" / "lib64",
             )
             if path.exists()
+        )
+        multilib_dirs.extend(
+            path
+            for root in (sysroot / runtime_dir, sysroot / link_dir)
+            if root.is_dir()
+            for path in root.iterdir()
+            if path.is_dir()
         )
         if multilib_dirs:
             paths = "\n".join(f"  - {path}" for path in multilib_dirs)

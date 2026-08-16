@@ -103,11 +103,12 @@ jobs:
             "${archive_root}riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1" \
             "${manifest}"
           grep -Fqx \
-            "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so" \
+            "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so" \
             "${manifest}"
-          if grep -Eq \
-            "^${archive_root}riscv64-unknown-linux-gnu/sysroot/(lib|usr/lib)/[^/]+/" \
-            "${manifest}"; then
+          riscv_root="^${archive_root}riscv64-unknown-linux-gnu/sysroot"
+          if grep -Eq "${riscv_root}/(lib32|usr/lib32)/" "${manifest}" ||
+            grep -E "${riscv_root}/(lib64|usr/lib64)/[^/]+/" "${manifest}" |
+              grep -Ev "${riscv_root}/(lib64|usr/lib64)/lp64d/" >/dev/null; then
             echo "RISC-V multilib path leaked into thin sysroot"
             exit 1
           fi

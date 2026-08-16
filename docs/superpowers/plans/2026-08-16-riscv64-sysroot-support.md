@@ -4,7 +4,7 @@
 
 **Goal:** Publish full sysroot, thin default-ABI sysroot, and compiler-rt builtins artifacts for `riscv64-unknown-linux-gnu`.
 
-**Architecture:** Extend the existing explicit target tables rather than introducing shared target metadata. The full package retains the upstream GCC multilib tree, while the thin package selects only direct files from the default `lib` and `usr/lib` directories, which retains `rv64gc/lp64d` and drops nested alternate ABI directories.
+**Architecture:** Extend the existing explicit target tables rather than introducing shared target metadata. The full package retains the upstream GCC multilib tree, while the thin package selects only direct files from the default `lib64/lp64d` and `usr/lib64/lp64d` directories, which retains `rv64gc/lp64d` and drops alternate ABI directories.
 
 **Tech Stack:** Python 3.13, pytest, GitHub Actions YAML, GCC/glibc sysroots, LLVM/Clang, compiler-rt, QEMU user-mode emulation.
 
@@ -24,7 +24,7 @@ triple = "riscv64-unknown-linux-gnu"
 assert triple in full.TARGETS
 assert full.TARGET_SHORT_NAMES[triple] == "riscv64-linux"
 assert full.QEMU_COMMANDS[triple] == "qemu-riscv64"
-assert thin.TARGET_LAYOUTS[triple] == ("lib", "usr/lib")
+assert thin.TARGET_LAYOUTS[triple] == ("lib64/lp64d", "usr/lib64/lp64d")
 assert thin.DYNAMIC_LINKERS[triple] == "/lib/ld-linux-riscv64-lp64d.so.1"
 assert thin.QEMU_COMMANDS[triple] == "qemu-riscv64"
 assert triple in builtins.SYSROOT_TARGETS
@@ -32,7 +32,7 @@ assert triple in builtins.SYSROOT_TARGETS
 
 - [x] **Step 2: Add a thin-layout test**
 
-Create a synthetic RISC-V full sysroot with default runtime files in `lib`, default link files in `usr/lib`, and alternate ABI files in nested multilib directories. Build the thin target and assert the default loader/libc are retained and all nested multilib directories are absent.
+Create a synthetic RISC-V full sysroot with default runtime files in `lib64/lp64d`, default link files in `usr/lib64/lp64d`, the loader in `lib`, and alternate ABI files in sibling multilib directories. Build the thin target and assert the default loader/libc are retained and all alternate multilib directories are absent.
 
 - [x] **Step 3: Run the focused tests and verify RED**
 
@@ -68,7 +68,7 @@ to `TARGETS`, `TARGET_SHORT_NAMES`, and `QEMU_COMMANDS` respectively.
 Add:
 
 ```python
-"riscv64-unknown-linux-gnu": ("lib", "usr/lib")
+"riscv64-unknown-linux-gnu": ("lib64/lp64d", "usr/lib64/lp64d")
 "riscv64-unknown-linux-gnu": "/lib/ld-linux-riscv64-lp64d.so.1"
 "riscv64-unknown-linux-gnu": "qemu-riscv64"
 ```
@@ -102,7 +102,7 @@ Expected: all RISC-V target and thin-layout tests pass.
 Read each workflow as text and assert it checks the exact RISC-V release path:
 
 ```text
-sysroot_full-gcc${GCC_VERSION}/riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so
+sysroot_full-gcc${GCC_VERSION}/riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so
 compiler_rt_builtins-llvm${LLVM_VERSION}/lib/clang/${LLVM_VERSION%%.*}/lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a
 sysroot_thin-gcc${GCC_VERSION}/riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1
 ```
@@ -119,7 +119,7 @@ Expected: failures because the workflows currently validate only the archive roo
 
 - [x] **Step 3: Update archive checks**
 
-In each workflow, write `tar -tf` output to a manifest and use `grep -Fqx` to verify the RISC-V path. The full workflow also checks `lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a`; the thin workflow checks `usr/lib/libc.so` and rejects nested entries below its default `lib` and `usr/lib` directories.
+In each workflow, write `tar -tf` output to a manifest and use `grep -Fqx` to verify the RISC-V path. The full workflow also checks `lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a`; the thin workflow checks `usr/lib64/lp64d/libc.so` and rejects sibling ABI entries under `lib64`/`usr/lib64` plus all 32-bit directories.
 
 - [x] **Step 4: Run the workflow contract test and verify GREEN**
 

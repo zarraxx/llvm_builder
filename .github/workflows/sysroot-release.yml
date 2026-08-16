@@ -91,7 +91,7 @@ jobs:
           tar -tf "${archive}" > "${manifest}"
           test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
           grep -Fqx \
-            "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so" \
+            "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so" \
             "${manifest}"
           grep -Fqx \
             "${archive_root}lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a" \

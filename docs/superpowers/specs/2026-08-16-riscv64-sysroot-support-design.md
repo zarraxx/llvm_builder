@@ -38,7 +38,9 @@ The selected RISC-V ABI is the upstream toolchain default:
 - dynamic linker: `/lib/ld-linux-riscv64-lp64d.so.1`
 
 The thin package copies only the default runtime directory and default linker
-directory used by an unqualified `riscv64-unknown-linux-gnu` link. Existing
+directory used by an unqualified `riscv64-unknown-linux-gnu` link:
+`lib64/lp64d` and `usr/lib64/lp64d`. The loader remains at its ABI path under
+`lib`. Existing
 copy helpers operate on direct children and an explicit library whitelist, so
 alternate multilib subdirectories are not copied. Structural verification
 must additionally reject RISC-V library subdirectories that contain alternate
@@ -84,8 +86,7 @@ layout, and release verification using the actual upstream toolchain bundle.
 
 ## Failure Handling
 
-If the upstream default RISC-V library directories differ from `lib` and
-`usr/lib`, the full workflow evidence is used to correct the explicit thin
-layout before triggering the remaining workflows. A failed workflow does not
+The full workflow evidence establishes the upstream default RISC-V library
+directories before triggering the remaining workflows. A failed workflow does not
 permit triggering the next release, and existing release assets are only
 replaced by each workflow after build and archive checks succeed.
