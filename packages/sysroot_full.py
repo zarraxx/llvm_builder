@@ -36,6 +36,7 @@ TARGETS = (
     "loongarch64-unknown-linux-gnu",
     "mips64el-unknown-linux-gnu",
     "powerpc64le-unknown-linux-gnu",
+    "riscv64-unknown-linux-gnu",
     "s390x-ibm-linux-gnu",
     "x86_64-unknown-linux-gnu",
     MINGW_TRIPLE,
@@ -47,6 +48,7 @@ TARGET_SHORT_NAMES = {
     "loongarch64-unknown-linux-gnu": "loongarch64-linux",
     "mips64el-unknown-linux-gnu": "mips64el-linux",
     "powerpc64le-unknown-linux-gnu": "powerpc64le-linux",
+    "riscv64-unknown-linux-gnu": "riscv64-linux",
     "s390x-ibm-linux-gnu": "s390x-linux",
     "x86_64-unknown-linux-gnu": "x86_64-linux",
     MINGW_TRIPLE: "x86_64-mingw32",
@@ -58,6 +60,7 @@ QEMU_COMMANDS = {
     "loongarch64-unknown-linux-gnu": "qemu-loongarch64",
     "mips64el-unknown-linux-gnu": "qemu-mips64el",
     "powerpc64le-unknown-linux-gnu": "qemu-ppc64le",
+    "riscv64-unknown-linux-gnu": "qemu-riscv64",
     "s390x-ibm-linux-gnu": "qemu-s390x",
     "x86_64-unknown-linux-gnu": "qemu-x86_64",
 }

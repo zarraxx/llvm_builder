@@ -30,6 +30,7 @@ TARGET_LAYOUTS = {
     "loongarch64-unknown-linux-gnu": ("lib64", "usr/lib64"),
     "mips64el-unknown-linux-gnu": ("lib64", "usr/lib64"),
     "powerpc64le-unknown-linux-gnu": ("lib", "usr/lib"),
+    "riscv64-unknown-linux-gnu": ("lib", "usr/lib"),
     "s390x-ibm-linux-gnu": ("lib64", "usr/lib64"),
     "x86_64-unknown-linux-gnu": ("lib64", "usr/lib64"),
 }
@@ -42,6 +43,7 @@ DYNAMIC_LINKERS = {
     "loongarch64-unknown-linux-gnu": "/lib64/ld-linux-loongarch-lp64d.so.1",
     "mips64el-unknown-linux-gnu": "/lib64/ld.so.1",
     "powerpc64le-unknown-linux-gnu": "/lib64/ld64.so.2",
+    "riscv64-unknown-linux-gnu": "/lib/ld-linux-riscv64-lp64d.so.1",
     "s390x-ibm-linux-gnu": "/lib/ld64.so.1",
     "x86_64-unknown-linux-gnu": "/lib64/ld-linux-x86-64.so.2",
 }
@@ -52,6 +54,7 @@ QEMU_COMMANDS = {
     "loongarch64-unknown-linux-gnu": "qemu-loongarch64",
     "mips64el-unknown-linux-gnu": "qemu-mips64el",
     "powerpc64le-unknown-linux-gnu": "qemu-ppc64le",
+    "riscv64-unknown-linux-gnu": "qemu-riscv64",
     "s390x-ibm-linux-gnu": "qemu-s390x",
     "x86_64-unknown-linux-gnu": "qemu-x86_64",
 }

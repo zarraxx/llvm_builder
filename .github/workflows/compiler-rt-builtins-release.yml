@@ -74,9 +74,15 @@ jobs:
         run: |
           archive="dist/compiler_rt_builtins-llvm${LLVM_VERSION}.tar.xz"
           archive_root="compiler_rt_builtins-llvm${LLVM_VERSION}/"
+          manifest="${archive}.contents"
+          llvm_major="${LLVM_VERSION%%.*}"
           test -s "${archive}"
           xz --test "${archive}"
-          test "$(tar -tf "${archive}" | sed -n '1p')" = "${archive_root}"
+          tar -tf "${archive}" > "${manifest}"
+          test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
+          grep -Fqx \
+            "${archive_root}lib/clang/${llvm_major}/lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a" \
+            "${manifest}"
           sha256sum "${archive}" | tee "${archive}.sha256"
 
       - name: Upload workflow artifact

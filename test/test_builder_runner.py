@@ -216,6 +216,135 @@ def test_compiler_rt_builtins_packages_versioned_root(
     ]
 
 
+def test_riscv64_is_supported_by_all_sysroot_packages(tmp_path: Path):
+    project_root = Path(__file__).resolve().parents[1]
+    triple = "riscv64-unknown-linux-gnu"
+
+    def load(package_name: str):
+        runner = BuilderRunner(
+            workspace=tmp_path / package_name.removesuffix(".py"),
+            package_file=project_root / "packages" / package_name,
+            builder_type=FakeBuilder,
+        )
+        return runner.load_package_script(
+            {"GCC_VERSION": "15.2.0", "__sys_argv__": []}
+        )
+
+    full = load("sysroot_full.py")
+    thin = load("sysroot_thin.py")
+    builtins = load("compiler_rt_builtins.py")
+
+    assert triple in full.TARGETS
+    assert full.TARGET_SHORT_NAMES[triple] == "riscv64-linux"
+    assert full.QEMU_COMMANDS[triple] == "qemu-riscv64"
+    assert thin.TARGET_LAYOUTS[triple] == ("lib", "usr/lib")
+    assert thin.DYNAMIC_LINKERS[triple] == "/lib/ld-linux-riscv64-lp64d.so.1"
+    assert thin.QEMU_COMMANDS[triple] == "qemu-riscv64"
+    assert triple in builtins.SYSROOT_TARGETS
+
+
+def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path):
+    project_root = Path(__file__).resolve().parents[1]
+    triple = "riscv64-unknown-linux-gnu"
+    full_root = tmp_path / "sysroot-full"
+    source_sysroot = full_root / triple / "sysroot"
+    include_dir = source_sysroot / "usr" / "include"
+    runtime_dir = source_sysroot / "lib"
+    link_dir = source_sysroot / "usr" / "lib"
+
+    include_dir.mkdir(parents=True)
+    (include_dir / "stdio.h").write_text("", encoding="utf-8")
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "ld-linux-riscv64-lp64d.so.1").write_text(
+        "loader", encoding="utf-8"
+    )
+    (runtime_dir / "libc.so.6").write_text("glibc", encoding="utf-8")
+    link_dir.mkdir(parents=True)
+    for name in ("crt1.o", "Scrt1.o", "crti.o", "crtn.o", "libc_nonshared.a"):
+        (link_dir / name).write_text(name, encoding="utf-8")
+    (link_dir / "libc.so").write_text(
+        "GROUP ( /lib/libc.so.6 )", encoding="utf-8"
+    )
+
+    alternate_runtime = runtime_dir / "rv32imac" / "ilp32"
+    alternate_runtime.mkdir(parents=True)
+    (alternate_runtime / "libc.so.6").write_text("rv32", encoding="utf-8")
+    alternate_link = link_dir / "rv64imac" / "lp64"
+    alternate_link.mkdir(parents=True)
+    (alternate_link / "libc.so").write_text("lp64", encoding="utf-8")
+    (source_sysroot / "lib64" / "lp64").mkdir(parents=True)
+    (source_sysroot / "lib64" / "lp64" / "libc.so.6").write_text(
+        "lp64", encoding="utf-8"
+    )
+
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_thin.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "SYSROOT_FULL_DIR": str(full_root),
+            "__sys_argv__": ["--target", triple],
+        }
+    )
+
+    module.configure()
+    module.build()
+    module._verify_structure(triple)
+
+    thin_sysroot = module.DEST_DIR / triple / "sysroot"
+    assert (thin_sysroot / "lib" / "ld-linux-riscv64-lp64d.so.1").is_file()
+    assert (thin_sysroot / "lib" / "libc.so.6").is_file()
+    assert (thin_sysroot / "usr" / "lib" / "libc.so").is_file()
+    assert not (thin_sysroot / "lib" / "rv32imac").exists()
+    assert not (thin_sysroot / "usr" / "lib" / "rv64imac").exists()
+    assert not (thin_sysroot / "lib64").exists()
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "required_snippets"),
+    [
+        (
+            "sysroot-release.yml",
+            (
+                'manifest="${archive}.contents"',
+                "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",
+                "lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a",
+            ),
+        ),
+        (
+            "compiler-rt-builtins-release.yml",
+            (
+                'manifest="${archive}.contents"',
+                'llvm_major="${LLVM_VERSION%%.*}"',
+                "lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a",
+            ),
+        ),
+        (
+            "sysroot-thin-release.yml",
+            (
+                'manifest="${archive}.contents"',
+                "riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1",
+                "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",
+                "RISC-V multilib path leaked into thin sysroot",
+            ),
+        ),
+    ],
+)
+def test_riscv64_workflow_archive_contracts(
+    workflow_name: str, required_snippets: tuple[str, ...]
+):
+    project_root = Path(__file__).resolve().parents[1]
+    workflow = (project_root / ".github" / "workflows" / workflow_name).read_text(
+        encoding="utf-8"
+    )
+
+    for snippet in required_snippets:
+        assert snippet in workflow
+
+
 @pytest.mark.parametrize(
     ("package_name", "target"),
     [

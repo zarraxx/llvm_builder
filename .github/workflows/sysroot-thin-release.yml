@@ -94,9 +94,23 @@ jobs:
         run: |
           archive="dist/sysroot_thin-gcc${GCC_VERSION}.tar.xz"
           archive_root="sysroot_thin-gcc${GCC_VERSION}/"
+          manifest="${archive}.contents"
           test -s "${archive}"
           xz --test "${archive}"
-          test "$(tar -tf "${archive}" | sed -n '1p')" = "${archive_root}"
+          tar -tf "${archive}" > "${manifest}"
+          test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
+          grep -Fqx \
+            "${archive_root}riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1" \
+            "${manifest}"
+          grep -Fqx \
+            "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so" \
+            "${manifest}"
+          if grep -Eq \
+            "^${archive_root}riscv64-unknown-linux-gnu/sysroot/(lib|usr/lib)/[^/]+/" \
+            "${manifest}"; then
+            echo "RISC-V multilib path leaked into thin sysroot"
+            exit 1
+          fi
           sha256sum "${archive}" | tee "${archive}.sha256"
 
       - name: Upload workflow artifact
