@@ -315,6 +315,7 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
         (
             "sysroot-release.yml",
             (
+                'ref: ${{ github.sha }}',
                 'manifest="${archive}.contents"',
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",
                 "lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a",
@@ -325,6 +326,7 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
         (
             "compiler-rt-builtins-release.yml",
             (
+                'ref: ${{ github.sha }}',
                 'manifest="${archive}.contents"',
                 'llvm_major="${LLVM_VERSION%%.*}"',
                 "lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a",
@@ -335,6 +337,7 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
         (
             "sysroot-thin-release.yml",
             (
+                'ref: ${{ github.sha }}',
                 'manifest="${archive}.contents"',
                 "riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1",
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",

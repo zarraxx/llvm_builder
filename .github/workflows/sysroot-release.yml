@@ -37,10 +37,10 @@ jobs:
       LLVM_VERSION: ${{ inputs.llvm_version }}
 
     steps:
-      - name: Check out main
+      - name: Check out dispatched commit
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
