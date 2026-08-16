@@ -118,9 +118,11 @@ jobs:
 
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${archive}" "${checksum}" --clobber
+            git tag --force "${tag}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}" --force
           else
             gh release create "${tag}" "${archive}" "${checksum}" \
-              --target "$(git rev-parse HEAD)" \
+              --target "${GITHUB_SHA}" \
               --title "${tag}" \
               --generate-notes
           fi

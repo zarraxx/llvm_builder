@@ -302,6 +302,12 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
     assert not (thin_sysroot / "usr" / "lib" / "rv64imac").exists()
     assert not (thin_sysroot / "lib64").exists()
 
+    leaked_multilib = thin_sysroot / "lib" / "rv32imac" / "ilp32"
+    leaked_multilib.mkdir(parents=True)
+    (leaked_multilib / "libc.so.6").write_text("rv32", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="multilib"):
+        module._verify_structure(triple)
+
 
 @pytest.mark.parametrize(
     ("workflow_name", "required_snippets"),
@@ -312,6 +318,8 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'manifest="${archive}.contents"',
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",
                 "lib/gcc/riscv64-unknown-linux-gnu/${GCC_VERSION}/libgcc.a",
+                'git tag --force "${tag}" "${GITHUB_SHA}"',
+                'git push origin "refs/tags/${tag}" --force',
             ),
         ),
         (
@@ -320,6 +328,8 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'manifest="${archive}.contents"',
                 'llvm_major="${LLVM_VERSION%%.*}"',
                 "lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a",
+                'git tag --force "${tag}" "${GITHUB_SHA}"',
+                'git push origin "refs/tags/${tag}" --force',
             ),
         ),
         (
@@ -329,6 +339,8 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 "riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1",
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib/libc.so",
                 "RISC-V multilib path leaked into thin sysroot",
+                'git tag --force "${tag}" "${GITHUB_SHA}"',
+                'git push origin "refs/tags/${tag}" --force',
             ),
         ),
     ],

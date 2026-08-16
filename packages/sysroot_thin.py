@@ -383,6 +383,28 @@ def _verify_structure(triple: str) -> None:
     if not libc_candidates:
         raise FileNotFoundError(f"{triple} 缺少 glibc 动态库")
 
+    if triple == "riscv64-unknown-linux-gnu":
+        multilib_dirs = [
+            path
+            for root in (sysroot / runtime_dir, sysroot / link_dir)
+            if root.is_dir()
+            for path in root.iterdir()
+            if path.is_dir()
+        ]
+        multilib_dirs.extend(
+            path
+            for path in (
+                sysroot / "lib32",
+                sysroot / "lib64",
+                sysroot / "usr" / "lib32",
+                sysroot / "usr" / "lib64",
+            )
+            if path.exists()
+        )
+        if multilib_dirs:
+            paths = "\n".join(f"  - {path}" for path in multilib_dirs)
+            raise RuntimeError(f"{triple} 包含不需要的 multilib 目录:\n{paths}")
+
     forbidden = [
         path
         for path in sysroot.rglob("*")
