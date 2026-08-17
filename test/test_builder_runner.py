@@ -175,6 +175,13 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
         "https://github.com/zarraxx/llvm_builder/releases/download/"
         "sysroot_full-gcc15.2.0/sysroot_full-gcc15.2.0.tar.xz"
     )
+    assert module.sysroot_musl_full.filename == (
+        "sysroot_musl_full-gcc15.2.0.tar.xz"
+    )
+    assert module.sysroot_musl_full.url == (
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "sysroot_musl_full-gcc15.2.0/sysroot_musl_full-gcc15.2.0.tar.xz"
+    )
 
     triple = "x86_64-unknown-linux-gnu"
     legacy_sysroot = runner.package_builder.prebuild_dir / triple / "sysroot"
@@ -184,6 +191,12 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
     rooted_sysroot = module.SYSROOT_DIR / triple / "sysroot"
     rooted_sysroot.mkdir(parents=True)
     assert module._sysroot_dir(triple) == module.SYSROOT_DIR
+
+    musl_triple = "aarch64-unknown-linux-musl"
+    musl_sysroot = module.MUSL_SYSROOT_DIR / musl_triple / "sysroot"
+    musl_sysroot.mkdir(parents=True)
+    assert module._sysroot_dir(musl_triple) == module.MUSL_SYSROOT_DIR
+    assert musl_triple in module.MUSL_SYSROOT_TARGETS
 
 
 def test_compiler_rt_builtins_packages_versioned_root(
@@ -337,6 +350,7 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'manifest="${archive}.contents"',
                 'llvm_major="${LLVM_VERSION%%.*}"',
                 "lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a",
+                "lib/loongarch64-unknown-linux-musl/libclang_rt.builtins.a",
                 'git tag --force "${tag}" "${GITHUB_SHA}"',
                 'git push origin "refs/tags/${tag}" --force',
             ),
@@ -348,6 +362,9 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'manifest="${archive}.contents"',
                 "riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1",
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so",
+                "loongarch64-unknown-linux-musl/sysroot/lib/ld-musl-loongarch64.so.1",
+                "loongarch64-unknown-linux-musl/sysroot/usr/lib/libc.a",
+                "GCC or C++ files leaked into musl thin sysroot",
                 "RISC-V multilib path leaked into thin sysroot",
                 'git tag --force "${tag}" "${GITHUB_SHA}"',
                 'git push origin "refs/tags/${tag}" --force',
@@ -747,6 +764,106 @@ def test_sysroot_thin_keeps_only_dynamic_glibc_environment(
             "-C",
             runner.package_builder.output_dir,
             "sysroot_thin-gcc15.2.0",
+        )
+    ]
+
+
+def test_sysroot_thin_keeps_dynamic_and_static_musl_without_gcc_or_cxx(
+    tmp_path: Path,
+):
+    project_root = Path(__file__).resolve().parents[1]
+    triple = "x86_64-unknown-linux-musl"
+    musl_full_root = tmp_path / "sysroot-musl-full"
+    source_sysroot = musl_full_root / triple / "sysroot"
+    include_dir = source_sysroot / "usr" / "include"
+    link_dir = source_sysroot / "usr" / "lib64"
+    runtime_dir = source_sysroot / "lib64"
+
+    (include_dir / "c++").mkdir(parents=True)
+    (include_dir / "stdio.h").write_text("", encoding="utf-8")
+    (include_dir / "c++" / "vector").write_text("", encoding="utf-8")
+    link_dir.mkdir(parents=True)
+    for name in ("crt1.o", "Scrt1.o", "rcrt1.o", "crti.o", "crtn.o"):
+        (link_dir / name).write_text(name, encoding="utf-8")
+    (link_dir / "libc.so").write_text("dynamic musl", encoding="utf-8")
+    (link_dir / "libc.a").write_text("static musl", encoding="utf-8")
+    (link_dir / "libm.a").write_text("musl compatibility", encoding="utf-8")
+
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "libgcc_s.so.1").write_text("gcc", encoding="utf-8")
+    (runtime_dir / "libstdc++.so.6").write_text("c++", encoding="utf-8")
+    loader = source_sysroot / "lib" / "ld-musl-x86_64.so.1"
+    loader.parent.mkdir(parents=True)
+    loader.symlink_to("../usr/lib64/libc.so")
+
+    source_32 = source_sysroot / "usr" / "lib"
+    source_32.mkdir(parents=True)
+    (source_32 / "libc.so").write_text("32-bit musl", encoding="utf-8")
+    (source_32 / "libc.a").write_text("32-bit static musl", encoding="utf-8")
+    (source_sysroot / "lib" / "ld-musl-i386.so.1").symlink_to(
+        "../usr/lib/libc.so"
+    )
+
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_thin.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "MUSL_SYSROOT_FULL_DIR": str(musl_full_root),
+            "__sys_argv__": ["--target", triple],
+        }
+    )
+
+    assert module.sysroot_musl_full.filename == (
+        "sysroot_musl_full-gcc15.2.0.tar.xz"
+    )
+    assert module.sysroot_musl_full.url == (
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "sysroot_musl_full-gcc15.2.0/sysroot_musl_full-gcc15.2.0.tar.xz"
+    )
+
+    module.configure()
+    module.build()
+    module._verify_structure(triple)
+
+    thin_sysroot = module.DEST_DIR / triple / "sysroot"
+    thin_link_dir = thin_sysroot / "usr" / "lib64"
+    assert (thin_sysroot / "lib" / "ld-musl-x86_64.so.1").is_symlink()
+    assert (thin_link_dir / "libc.so").is_file()
+    assert (thin_link_dir / "libc.a").is_file()
+    assert (thin_link_dir / "libm.a").is_file()
+    assert (thin_link_dir / "rcrt1.o").is_file()
+    assert not (thin_sysroot / "usr" / "lib").exists()
+    assert not (thin_sysroot / "usr" / "include" / "c++").exists()
+    assert not list(thin_sysroot.rglob("libgcc*"))
+    assert not list(thin_sysroot.rglob("libstdc++*"))
+
+    def fake_cmake_build(cmake_args: list[str], *, build_dir: Path) -> None:
+        runner.package_builder.events.append(("cmake_build", cmake_args, build_dir))
+        output_dir = module.VERIFY_OUTPUT_DIR / triple
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for filename in ("thin_a.so", "thin_b.so", "thin_verify"):
+            (output_dir / filename).write_text("", encoding="utf-8")
+
+    runner.package_builder.cmake_build = fake_cmake_build
+    module._run_verify_executable = lambda *_args: module.VERIFY_EXPECTED_OUTPUT
+    static_verify_calls = []
+    module._verify_static_musl = lambda *args: static_verify_calls.append(args)
+    module._verify_target(triple)
+
+    configure_event = runner.package_builder.events[-2]
+    assert configure_event[0] == "cmake_configure"
+    assert f"-DTHIN_TARGET_TRIPLE={triple}" in configure_event[1]
+    assert "-DTHIN_DYNAMIC_LINKER=/lib/ld-musl-x86_64.so.1" in configure_event[1]
+    assert static_verify_calls == [
+        (
+            triple,
+            thin_sysroot,
+            thin_link_dir,
+            module.VERIFY_OUTPUT_DIR / triple,
         )
     ]
 

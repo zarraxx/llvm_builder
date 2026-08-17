@@ -24,7 +24,7 @@ BUNDLE_DIR_NAME = f"{__PACKAGE_NAME__}-gcc{GCC_VERSION}"
 
 # Only the primary ABI of each Linux triple is retained. Multilib variants from
 # the full GCC bundle are deliberately omitted.
-TARGET_LAYOUTS = {
+GLIBC_TARGET_LAYOUTS = {
     "aarch64-unknown-linux-gnu": ("lib", "usr/lib"),
     "armv7-unknown-linux-gnueabihf": ("lib", "usr/lib"),
     "loongarch64-unknown-linux-gnu": ("lib64", "usr/lib64"),
@@ -34,6 +34,18 @@ TARGET_LAYOUTS = {
     "s390x-ibm-linux-gnu": ("lib64", "usr/lib64"),
     "x86_64-unknown-linux-gnu": ("lib64", "usr/lib64"),
 }
+MUSL_TARGET_LAYOUTS = {
+    "aarch64-unknown-linux-musl": ("lib", "usr/lib"),
+    "armv7-unknown-linux-musleabihf": ("lib", "usr/lib"),
+    "loongarch64-unknown-linux-musl": ("lib", "usr/lib"),
+    "mips64el-unknown-linux-musl": ("lib", "usr/lib"),
+    "powerpc64le-unknown-linux-musl": ("lib", "usr/lib"),
+    "riscv64-unknown-linux-musl": ("lib", "usr/lib"),
+    "s390x-ibm-linux-musl": ("lib", "usr/lib"),
+    "x86_64-unknown-linux-musl": ("lib64", "usr/lib64"),
+}
+TARGET_LAYOUTS = {**GLIBC_TARGET_LAYOUTS, **MUSL_TARGET_LAYOUTS}
+MUSL_TARGETS = tuple(MUSL_TARGET_LAYOUTS)
 MINGW_TRIPLE = "x86_64-w64-mingw32"
 TARGETS = (*TARGET_LAYOUTS, MINGW_TRIPLE)
 
@@ -46,6 +58,14 @@ DYNAMIC_LINKERS = {
     "riscv64-unknown-linux-gnu": "/lib/ld-linux-riscv64-lp64d.so.1",
     "s390x-ibm-linux-gnu": "/lib/ld64.so.1",
     "x86_64-unknown-linux-gnu": "/lib64/ld-linux-x86-64.so.2",
+    "aarch64-unknown-linux-musl": "/lib/ld-musl-aarch64.so.1",
+    "armv7-unknown-linux-musleabihf": "/lib/ld-musl-armhf.so.1",
+    "loongarch64-unknown-linux-musl": "/lib/ld-musl-loongarch64.so.1",
+    "mips64el-unknown-linux-musl": "/lib/ld-musl-mips64el.so.1",
+    "powerpc64le-unknown-linux-musl": "/lib/ld-musl-powerpc64le.so.1",
+    "riscv64-unknown-linux-musl": "/lib/ld-musl-riscv64.so.1",
+    "s390x-ibm-linux-musl": "/lib/ld-musl-s390x.so.1",
+    "x86_64-unknown-linux-musl": "/lib/ld-musl-x86_64.so.1",
 }
 
 QEMU_COMMANDS = {
@@ -57,6 +77,14 @@ QEMU_COMMANDS = {
     "riscv64-unknown-linux-gnu": "qemu-riscv64",
     "s390x-ibm-linux-gnu": "qemu-s390x",
     "x86_64-unknown-linux-gnu": "qemu-x86_64",
+    "aarch64-unknown-linux-musl": "qemu-aarch64",
+    "armv7-unknown-linux-musleabihf": "qemu-arm",
+    "loongarch64-unknown-linux-musl": "qemu-loongarch64",
+    "mips64el-unknown-linux-musl": "qemu-mips64el",
+    "powerpc64le-unknown-linux-musl": "qemu-ppc64le",
+    "riscv64-unknown-linux-musl": "qemu-riscv64",
+    "s390x-ibm-linux-musl": "qemu-s390x",
+    "x86_64-unknown-linux-musl": "qemu-x86_64",
 }
 
 # These aliases are part of the ABI paths embedded in glibc linker scripts.
@@ -91,6 +119,20 @@ GLIBC_LINK_LIBRARIES = (
 )
 GLIBC_START_FILES = ("crt1.o", "Scrt1.o", "crti.o", "crtn.o")
 GLIBC_NONSHARED_ARCHIVES = ("libc_nonshared.a", "libpthread_nonshared.a")
+
+MUSL_START_FILES = ("crt1.o", "Scrt1.o", "rcrt1.o", "crti.o", "crtn.o")
+MUSL_STATIC_LIBRARIES = (
+    "libc.a",
+    "libm.a",
+    "libpthread.a",
+    "libdl.a",
+    "librt.a",
+    "libresolv.a",
+    "libcrypt.a",
+    "libutil.a",
+    "libxnet.a",
+)
+MUSL_LINK_FILES = ("libc.so", *MUSL_START_FILES, *MUSL_STATIC_LIBRARIES)
 
 # MinGW keeps the complete 64-bit WinSDK/CRT surface. Unlike Linux, its .a
 # files are mostly WinAPI import libraries and cannot be reduced to a small
@@ -130,8 +172,15 @@ SOURCE_ROOT = Path(
         builder.prebuild_dir / f"sysroot_full-gcc{GCC_VERSION}",
     )
 ).resolve()
+MUSL_SOURCE_ROOT = Path(
+    env(
+        "MUSL_SYSROOT_FULL_DIR",
+        builder.prebuild_dir / f"sysroot_musl_full-gcc{GCC_VERSION}",
+    )
+).resolve()
 DEST_DIR = builder.output_dir / BUNDLE_DIR_NAME
 PACKAGE_DIR = Path(__file__).resolve().parent
+STATIC_VERIFY_SOURCE = PACKAGE_DIR / "samples" / "main.c"
 VERIFY_SOURCE_DIR = PACKAGE_DIR / "thin_verify"
 VERIFY_TOOLCHAIN_FILE = VERIFY_SOURCE_DIR / "toolchain.cmake"
 VERIFY_BUILD_DIR = builder.build_dir / f"{__PACKAGE_NAME__}-verify"
@@ -159,6 +208,16 @@ sysroot_full = prebuild(
     ),
 )
 
+sysroot_musl_full = prebuild(
+    name="sysroot_musl_full",
+    version=GCC_VERSION,
+    filename_fmt="{{name}}-gcc{{version}}.tar.xz",
+    url_fmt=(
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "{{name}}-gcc{{version}}/{{filename}}"
+    ),
+)
+
 
 def configure() -> None:
     missing = []
@@ -177,11 +236,20 @@ def configure() -> None:
             continue
 
         runtime_dir, link_dir = TARGET_LAYOUTS[triple]
-        for required in (
+        required_paths = [
             source_sysroot / "usr" / "include" / "stdio.h",
             source_sysroot / runtime_dir,
             source_sysroot / link_dir / "libc.so",
-        ):
+        ]
+        if triple in MUSL_TARGETS:
+            required_paths.extend(
+                (
+                    source_sysroot / DYNAMIC_LINKERS[triple].removeprefix("/"),
+                    source_sysroot / link_dir / "libc.a",
+                    *(source_sysroot / link_dir / name for name in MUSL_START_FILES),
+                )
+            )
+        for required in required_paths:
             if not required.exists():
                 missing.append(required)
 
@@ -190,7 +258,8 @@ def configure() -> None:
         raise FileNotFoundError(f"sysroot_full 依赖不完整:\n{paths}")
 
     print(f"GCC/glibc bundle version: {GCC_VERSION}")
-    print(f"Full sysroot source: {SOURCE_ROOT}")
+    print(f"Full glibc sysroot source: {SOURCE_ROOT}")
+    print(f"Full musl sysroot source: {MUSL_SOURCE_ROOT}")
 
 
 def build() -> None:
@@ -202,6 +271,9 @@ def build() -> None:
         destination_sysroot = DEST_DIR / triple / "sysroot"
         if triple == MINGW_TRIPLE:
             _build_mingw_sysroot(source_sysroot, destination_sysroot)
+            continue
+        if triple in MUSL_TARGETS:
+            _build_musl_sysroot(triple, source_sysroot, destination_sysroot)
             continue
 
         runtime_dir, link_dir = TARGET_LAYOUTS[triple]
@@ -256,7 +328,7 @@ def package() -> None:
 def _selected_targets() -> list[str]:
     parser = argparse.ArgumentParser(
         prog=f"{Path(__file__).name} [build options]",
-        description="从 sysroot_full 裁剪仅含主 ABI 动态 glibc 的最小 sysroot",
+        description="从 full sysroot 裁剪 glibc/musl 主 ABI 的最小 sysroot",
     )
     parser.add_argument(
         "--target",
@@ -270,14 +342,15 @@ def _selected_targets() -> list[str]:
 
 def _source_root(triple: str) -> Path:
     """Resolve both current rooted releases and legacy rootless archives."""
-    if (SOURCE_ROOT / triple / "sysroot").is_dir():
-        return SOURCE_ROOT
+    source_root = MUSL_SOURCE_ROOT if triple in MUSL_TARGETS else SOURCE_ROOT
+    if (source_root / triple / "sysroot").is_dir():
+        return source_root
 
     legacy_root = builder.prebuild_dir
     if (legacy_root / triple / "sysroot").is_dir():
         return legacy_root
 
-    return SOURCE_ROOT
+    return source_root
 
 
 def _copy_runtime_libraries(source_dir: Path, destination_dir: Path) -> None:
@@ -285,6 +358,28 @@ def _copy_runtime_libraries(source_dir: Path, destination_dir: Path) -> None:
     for source in source_dir.iterdir():
         if _is_dynamic_loader(source.name) or _is_glibc_runtime(source.name):
             _copy_entry(source, destination_dir / source.name)
+
+
+def _build_musl_sysroot(
+    triple: str,
+    source_sysroot: Path,
+    destination_sysroot: Path,
+) -> None:
+    _, link_dir = MUSL_TARGET_LAYOUTS[triple]
+    shutil.copytree(
+        source_sysroot / "usr" / "include",
+        destination_sysroot / "usr" / "include",
+        symlinks=True,
+        ignore=shutil.ignore_patterns("c++"),
+    )
+
+    for name in MUSL_LINK_FILES:
+        source = source_sysroot / link_dir / name
+        if source.exists() or source.is_symlink():
+            _copy_entry(source, destination_sysroot / link_dir / name)
+
+    loader = DYNAMIC_LINKERS[triple].removeprefix("/")
+    _copy_entry(source_sysroot / loader, destination_sysroot / loader)
 
 
 def _build_mingw_sysroot(source_sysroot: Path, destination_sysroot: Path) -> None:
@@ -365,6 +460,9 @@ def _verify_structure(triple: str) -> None:
     if triple == MINGW_TRIPLE:
         _verify_mingw_structure(sysroot)
         return
+    if triple in MUSL_TARGETS:
+        _verify_musl_structure(triple, sysroot)
+        return
 
     runtime_dir, link_dir = TARGET_LAYOUTS[triple]
     required = (
@@ -427,6 +525,49 @@ def _verify_structure(triple: str) -> None:
     if static_archives:
         paths = "\n".join(f"  - {path}" for path in static_archives)
         raise RuntimeError(f"{triple} 包含完整静态库:\n{paths}")
+
+
+def _verify_musl_structure(triple: str, sysroot: Path) -> None:
+    _, link_dir = MUSL_TARGET_LAYOUTS[triple]
+    required = (
+        sysroot / "usr" / "include" / "stdio.h",
+        sysroot / DYNAMIC_LINKERS[triple].removeprefix("/"),
+        sysroot / link_dir / "libc.so",
+        sysroot / link_dir / "libc.a",
+        *(sysroot / link_dir / name for name in MUSL_START_FILES),
+    )
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        paths = "\n".join(f"  - {path}" for path in missing)
+        raise FileNotFoundError(f"{triple} 的 musl thin sysroot 不完整:\n{paths}")
+
+    forbidden = [
+        path
+        for path in sysroot.rglob("*")
+        if path.name.startswith(FORBIDDEN_PREFIXES)
+        or "c++" in path.relative_to(sysroot).parts
+    ]
+    if forbidden:
+        paths = "\n".join(f"  - {path}" for path in forbidden)
+        raise RuntimeError(f"{triple} 包含禁止的 GCC/C++ runtime:\n{paths}")
+
+    allowed_archives = set(MUSL_STATIC_LIBRARIES)
+    unexpected_archives = [
+        path for path in sysroot.rglob("*.a") if path.name not in allowed_archives
+    ]
+    if unexpected_archives:
+        paths = "\n".join(f"  - {path}" for path in unexpected_archives)
+        raise RuntimeError(f"{triple} 包含非 musl 静态库:\n{paths}")
+
+    if triple == "x86_64-unknown-linux-musl":
+        leaked_multilib = [
+            path
+            for path in (sysroot / "usr" / "lib", sysroot / "lib" / "ld-musl-i386.so.1")
+            if path.exists()
+        ]
+        if leaked_multilib:
+            paths = "\n".join(f"  - {path}" for path in leaked_multilib)
+            raise RuntimeError(f"{triple} 包含不需要的 32 位 multilib:\n{paths}")
 
 
 def _verify_mingw_structure(sysroot: Path) -> None:
@@ -531,6 +672,59 @@ def _verify_target(triple: str) -> None:
             f"expected={VERIFY_EXPECTED_OUTPUT!r}, actual={actual!r}"
         )
     print(f"Verified thin shared libraries for {triple}:\n{actual}")
+    if triple in MUSL_TARGETS:
+        _verify_static_musl(triple, sysroot, link_path, target_output_dir)
+
+
+def _verify_static_musl(
+    triple: str,
+    sysroot: Path,
+    link_path: Path,
+    output_dir: Path,
+) -> None:
+    if not STATIC_VERIFY_SOURCE.is_file():
+        raise FileNotFoundError(f"musl 静态验证源码不存在: {STATIC_VERIFY_SOURCE}")
+
+    builtins_lib = COMPILER_RT_LIB_DIR / triple / "libclang_rt.builtins.a"
+    if not builtins_lib.is_file():
+        raise FileNotFoundError(
+            f"{triple} 静态验证缺少 compiler-rt builtins: {builtins_lib}"
+        )
+
+    executable = output_dir / "thin_verify_static"
+    _run_checked(
+        [
+            str(builder.clang),
+            f"--target={triple}",
+            f"--sysroot={sysroot}",
+            "-fuse-ld=lld",
+            "-static",
+            "-nostdlib",
+            f'-DSAMPLE_ARCH="{triple}"',
+            str(link_path / "crt1.o"),
+            str(link_path / "crti.o"),
+            str(STATIC_VERIFY_SOURCE),
+            f"-L{link_path}",
+            "-lc",
+            str(builtins_lib),
+            str(link_path / "crtn.o"),
+            "-o",
+            str(executable),
+        ]
+    )
+    if not executable.is_file():
+        raise RuntimeError(f"{triple} 缺少 musl 静态验证产物: {executable}")
+
+    qemu = shutil.which(QEMU_COMMANDS[triple])
+    if qemu is None:
+        raise FileNotFoundError(f"验证工具不存在: {QEMU_COMMANDS[triple]}")
+    actual = _run_checked([qemu, str(executable)]).stdout.strip()
+    expected = f"hello {triple}"
+    if actual != expected:
+        raise RuntimeError(
+            f"{triple} 静态验证输出不匹配: expected={expected!r}, actual={actual!r}"
+        )
+    print(f"Verified static musl libc for {triple}: {actual}")
 
 
 def _run_verify_executable(

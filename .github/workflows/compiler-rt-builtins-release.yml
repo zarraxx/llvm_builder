@@ -51,7 +51,7 @@ jobs:
         with:
           path: .cache
           key: >-
-            llvm-builder-${{ runner.os }}-compiler-rt-${{ inputs.llvm_version }}
+            llvm-builder-${{ runner.os }}-compiler-rt-musl-${{ inputs.llvm_version }}
 
       - name: Install build tools
         run: |
@@ -82,6 +82,9 @@ jobs:
           test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
           grep -Fqx \
             "${archive_root}lib/clang/${llvm_major}/lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a" \
+            "${manifest}"
+          grep -Fqx \
+            "${archive_root}lib/clang/${llvm_major}/lib/loongarch64-unknown-linux-musl/libclang_rt.builtins.a" \
             "${manifest}"
           sha256sum "${archive}" | tee "${archive}.sha256"
 

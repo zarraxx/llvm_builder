@@ -23,7 +23,7 @@ __PACKAGE_NAME__ = "compiler_rt_builtins"
 __PACKAGE_VERSION__ = LLVM_VERSION
 BUNDLE_DIR_NAME = f"{__PACKAGE_NAME__}-llvm{LLVM_VERSION}"
 
-SYSROOT_TARGETS = (
+GLIBC_SYSROOT_TARGETS = (
     "aarch64-unknown-linux-gnu",
     "armv7-unknown-linux-gnueabihf",
     "loongarch64-unknown-linux-gnu",
@@ -34,6 +34,17 @@ SYSROOT_TARGETS = (
     "x86_64-unknown-linux-gnu",
     "x86_64-w64-mingw32",
 )
+MUSL_SYSROOT_TARGETS = (
+    "aarch64-unknown-linux-musl",
+    "armv7-unknown-linux-musleabihf",
+    "loongarch64-unknown-linux-musl",
+    "mips64el-unknown-linux-musl",
+    "powerpc64le-unknown-linux-musl",
+    "riscv64-unknown-linux-musl",
+    "s390x-ibm-linux-musl",
+    "x86_64-unknown-linux-musl",
+)
+SYSROOT_TARGETS = GLIBC_SYSROOT_TARGETS + MUSL_SYSROOT_TARGETS
 WASI_TARGETS = (
     "wasm32-wasip1",
     "wasm32-wasip2",
@@ -45,6 +56,12 @@ SYSROOT_DIR = Path(
     env(
         "SYSROOT_DIR",
         builder.prebuild_dir / f"sysroot_full-gcc{GCC_VERSION}",
+    )
+).resolve()
+MUSL_SYSROOT_DIR = Path(
+    env(
+        "MUSL_SYSROOT_DIR",
+        builder.prebuild_dir / f"sysroot_musl_full-gcc{GCC_VERSION}",
     )
 ).resolve()
 BUILD_ROOT = builder.build_dir / f"compiler-rt-{LLVM_VERSION}"
@@ -62,6 +79,16 @@ llvm_project = source(
 
 sysroot_full = prebuild(
     name="sysroot_full",
+    version=GCC_VERSION,
+    filename_fmt="{{name}}-gcc{{version}}.tar.xz",
+    url_fmt=(
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "{{name}}-gcc{{version}}/{{filename}}"
+    ),
+)
+
+sysroot_musl_full = prebuild(
+    name="sysroot_musl_full",
     version=GCC_VERSION,
     filename_fmt="{{name}}-gcc{{version}}.tar.xz",
     url_fmt=(
@@ -210,11 +237,12 @@ def _cmake_args(
 
 def _sysroot_dir(triple: str) -> Path:
     """Resolve both current rooted releases and legacy rootless archives."""
-    if (SYSROOT_DIR / triple / "sysroot").is_dir():
-        return SYSROOT_DIR
+    sysroot_dir = MUSL_SYSROOT_DIR if triple in MUSL_SYSROOT_TARGETS else SYSROOT_DIR
+    if (sysroot_dir / triple / "sysroot").is_dir():
+        return sysroot_dir
 
     legacy_root = builder.prebuild_dir
     if (legacy_root / triple / "sysroot").is_dir():
         return legacy_root
 
-    return SYSROOT_DIR
+    return sysroot_dir

@@ -60,7 +60,7 @@ jobs:
         with:
           path: .cache
           key: >-
-            llvm-builder-${{ runner.os }}-thin-gcc-${{ inputs.sysroot_full_gcc_version }}-llvm-${{ inputs.llvm_version }}
+            llvm-builder-${{ runner.os }}-thin-musl-gcc-${{ inputs.sysroot_full_gcc_version }}-llvm-${{ inputs.llvm_version }}
 
       - name: Install verification tools
         run: |
@@ -75,13 +75,21 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Build MinGW compiler-rt builtins
+      - name: Build required compiler-rt builtins
         run: |
           uv run --frozen python3 src/BuilderRunner.py \
             packages/compiler_rt_builtins.py \
             -DGCC_VERSION="${GCC_VERSION}" \
             -DLLVM_VERSION="${LLVM_VERSION}" \
-            --target x86_64-w64-mingw32
+            --target x86_64-w64-mingw32 \
+            --target aarch64-unknown-linux-musl \
+            --target armv7-unknown-linux-musleabihf \
+            --target loongarch64-unknown-linux-musl \
+            --target mips64el-unknown-linux-musl \
+            --target powerpc64le-unknown-linux-musl \
+            --target riscv64-unknown-linux-musl \
+            --target s390x-ibm-linux-musl \
+            --target x86_64-unknown-linux-musl
 
       - name: Build, verify, and package thin sysroot
         run: |
@@ -105,6 +113,18 @@ jobs:
           grep -Fqx \
             "${archive_root}riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so" \
             "${manifest}"
+          grep -Fqx \
+            "${archive_root}loongarch64-unknown-linux-musl/sysroot/lib/ld-musl-loongarch64.so.1" \
+            "${manifest}"
+          grep -Fqx \
+            "${archive_root}loongarch64-unknown-linux-musl/sysroot/usr/lib/libc.a" \
+            "${manifest}"
+          musl_root="^${archive_root}[^/]+-linux-musl[^/]*/sysroot/"
+          if grep -E "${musl_root}" "${manifest}" |
+            grep -E '/(libgcc|libstdc\+\+|include/c\+\+)/' >/dev/null; then
+            echo "GCC or C++ files leaked into musl thin sysroot"
+            exit 1
+          fi
           riscv_root="^${archive_root}riscv64-unknown-linux-gnu/sysroot"
           if grep -Eq "${riscv_root}/(lib32|usr/lib32)/" "${manifest}" ||
             grep -E "${riscv_root}/(lib64|usr/lib64)/[^/]+/" "${manifest}" |
