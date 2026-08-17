@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 LLVM_VERSION = str(env("LLVM_VERSION", builder.llvm_version))
 GCC_VERSION = str(env("GCC_VERSION", "15.2.0"))
+MUSL_GCC_VERSION = str(env("MUSL_GCC_VERSION", GCC_VERSION))
 
 __PACKAGE_NAME__ = "compiler_rt_builtins"
 __PACKAGE_VERSION__ = LLVM_VERSION
@@ -61,7 +62,7 @@ SYSROOT_DIR = Path(
 MUSL_SYSROOT_DIR = Path(
     env(
         "MUSL_SYSROOT_DIR",
-        builder.prebuild_dir / f"sysroot_musl_full-gcc{GCC_VERSION}",
+        builder.prebuild_dir / f"sysroot_musl_full-gcc{MUSL_GCC_VERSION}",
     )
 ).resolve()
 BUILD_ROOT = builder.build_dir / f"compiler-rt-{LLVM_VERSION}"
@@ -89,7 +90,7 @@ sysroot_full = prebuild(
 
 sysroot_musl_full = prebuild(
     name="sysroot_musl_full",
-    version=GCC_VERSION,
+    version=MUSL_GCC_VERSION,
     filename_fmt="{{name}}-gcc{{version}}.tar.xz",
     url_fmt=(
         "https://github.com/zarraxx/llvm_builder/releases/download/"

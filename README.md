@@ -18,7 +18,8 @@ uv run python3 src/BuilderRunner.py packages/compiler_rt_builtins.py \
 
 # 从 glibc/musl full release 裁剪、验证并打包 thin sysroot
 uv run python3 src/BuilderRunner.py packages/sysroot_thin.py \
-  -DGCC_VERSION=15.2.0 -DLLVM_VERSION=22.1.8
+  -DGCC_VERSION=15.2.0 -DMUSL_GCC_VERSION=15.2.0 \
+  -DLLVM_VERSION=22.1.8
 
 # 构建 wasi-libc（默认使用 compiler-rt 输出）
 uv run python3 src/BuilderRunner.py packages/wasi_libc.py \

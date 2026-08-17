@@ -28,6 +28,7 @@ jobs:
     env:
       LLVM_VERSION: ${{ inputs.llvm_version }}
       GCC_VERSION: 15.2.0
+      MUSL_GCC_VERSION: 15.2.0
 
     steps:
       - name: Check out dispatched commit
@@ -68,6 +69,7 @@ jobs:
         run: |
           uv run --frozen python3 src/BuilderRunner.py \
             packages/compiler_rt_builtins.py \
+            -DMUSL_GCC_VERSION="${MUSL_GCC_VERSION}" \
             -DLLVM_VERSION="${LLVM_VERSION}"
 
       - name: Check release archive

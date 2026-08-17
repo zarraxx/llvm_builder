@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 GCC_VERSION = str(env("GCC_VERSION", "15.2.0"))
+MUSL_GCC_VERSION = str(env("MUSL_GCC_VERSION", GCC_VERSION))
 
 __PACKAGE_NAME__ = "sysroot_thin"
 __PACKAGE_VERSION__ = GCC_VERSION
@@ -175,7 +176,7 @@ SOURCE_ROOT = Path(
 MUSL_SOURCE_ROOT = Path(
     env(
         "MUSL_SYSROOT_FULL_DIR",
-        builder.prebuild_dir / f"sysroot_musl_full-gcc{GCC_VERSION}",
+        builder.prebuild_dir / f"sysroot_musl_full-gcc{MUSL_GCC_VERSION}",
     )
 ).resolve()
 DEST_DIR = builder.output_dir / BUNDLE_DIR_NAME
@@ -210,7 +211,7 @@ sysroot_full = prebuild(
 
 sysroot_musl_full = prebuild(
     name="sysroot_musl_full",
-    version=GCC_VERSION,
+    version=MUSL_GCC_VERSION,
     filename_fmt="{{name}}-gcc{{version}}.tar.xz",
     url_fmt=(
         "https://github.com/zarraxx/llvm_builder/releases/download/"
@@ -258,6 +259,7 @@ def configure() -> None:
         raise FileNotFoundError(f"sysroot_full 依赖不完整:\n{paths}")
 
     print(f"GCC/glibc bundle version: {GCC_VERSION}")
+    print(f"GCC/musl bundle version: {MUSL_GCC_VERSION}")
     print(f"Full glibc sysroot source: {SOURCE_ROOT}")
     print(f"Full musl sysroot source: {MUSL_SOURCE_ROOT}")
 

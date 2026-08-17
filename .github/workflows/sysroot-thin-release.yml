@@ -2,6 +2,7 @@ name: Build and release thin sysroot
 
 run-name: >-
   Build thin sysroot from GCC ${{ inputs.sysroot_full_gcc_version }}
+  and musl GCC ${{ inputs.sysroot_musl_full_gcc_version }}
   with LLVM ${{ inputs.llvm_version }}
 
 on:
@@ -9,6 +10,13 @@ on:
     inputs:
       sysroot_full_gcc_version:
         description: GCC version of the sysroot_full release
+        required: true
+        default: 15.2.0
+        type: choice
+        options:
+          - 15.2.0
+      sysroot_musl_full_gcc_version:
+        description: GCC version from the gcc-musl-<version> release
         required: true
         default: 15.2.0
         type: choice
@@ -26,7 +34,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: sysroot_thin-gcc-${{ inputs.sysroot_full_gcc_version }}
+  group: >-
+    sysroot_thin-gcc-${{ inputs.sysroot_full_gcc_version }}-musl-${{ inputs.sysroot_musl_full_gcc_version }}
   cancel-in-progress: false
 
 jobs:
@@ -36,6 +45,7 @@ jobs:
     timeout-minutes: 120
     env:
       GCC_VERSION: ${{ inputs.sysroot_full_gcc_version }}
+      MUSL_GCC_VERSION: ${{ inputs.sysroot_musl_full_gcc_version }}
       LLVM_VERSION: ${{ inputs.llvm_version }}
 
     steps:
@@ -60,7 +70,7 @@ jobs:
         with:
           path: .cache
           key: >-
-            llvm-builder-${{ runner.os }}-thin-musl-gcc-${{ inputs.sysroot_full_gcc_version }}-llvm-${{ inputs.llvm_version }}
+            llvm-builder-${{ runner.os }}-thin-gcc-${{ inputs.sysroot_full_gcc_version }}-musl-${{ inputs.sysroot_musl_full_gcc_version }}-llvm-${{ inputs.llvm_version }}
 
       - name: Install verification tools
         run: |
@@ -80,6 +90,7 @@ jobs:
           uv run --frozen python3 src/BuilderRunner.py \
             packages/compiler_rt_builtins.py \
             -DGCC_VERSION="${GCC_VERSION}" \
+            -DMUSL_GCC_VERSION="${MUSL_GCC_VERSION}" \
             -DLLVM_VERSION="${LLVM_VERSION}" \
             --target x86_64-w64-mingw32 \
             --target aarch64-unknown-linux-musl \
@@ -96,6 +107,7 @@ jobs:
           uv run --frozen python3 src/BuilderRunner.py \
             packages/sysroot_thin.py \
             -DGCC_VERSION="${GCC_VERSION}" \
+            -DMUSL_GCC_VERSION="${MUSL_GCC_VERSION}" \
             -DLLVM_VERSION="${LLVM_VERSION}"
 
       - name: Check release archive

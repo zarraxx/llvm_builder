@@ -165,7 +165,13 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
         package_file=project_root / "packages" / "compiler_rt_builtins.py",
         builder_type=FakeBuilder,
     )
-    module = runner.load_package_script({"GCC_VERSION": "15.2.0", "__sys_argv__": []})
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "MUSL_GCC_VERSION": "15.2.1",
+            "__sys_argv__": [],
+        }
+    )
 
     assert module.SYSROOT_DIR == (
         runner.package_builder.prebuild_dir / "sysroot_full-gcc15.2.0"
@@ -176,11 +182,14 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
         "sysroot_full-gcc15.2.0/sysroot_full-gcc15.2.0.tar.xz"
     )
     assert module.sysroot_musl_full.filename == (
-        "sysroot_musl_full-gcc15.2.0.tar.xz"
+        "sysroot_musl_full-gcc15.2.1.tar.xz"
     )
     assert module.sysroot_musl_full.url == (
         "https://github.com/zarraxx/llvm_builder/releases/download/"
-        "sysroot_musl_full-gcc15.2.0/sysroot_musl_full-gcc15.2.0.tar.xz"
+        "sysroot_musl_full-gcc15.2.1/sysroot_musl_full-gcc15.2.1.tar.xz"
+    )
+    assert module.MUSL_SYSROOT_DIR == (
+        runner.package_builder.prebuild_dir / "sysroot_musl_full-gcc15.2.1"
     )
 
     triple = "x86_64-unknown-linux-gnu"
@@ -349,6 +358,7 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'ref: ${{ github.sha }}',
                 'manifest="${archive}.contents"',
                 'llvm_major="${LLVM_VERSION%%.*}"',
+                '-DMUSL_GCC_VERSION="${MUSL_GCC_VERSION}"',
                 "lib/riscv64-unknown-linux-gnu/libclang_rt.builtins.a",
                 "lib/loongarch64-unknown-linux-musl/libclang_rt.builtins.a",
                 'git tag --force "${tag}" "${GITHUB_SHA}"',
@@ -360,6 +370,8 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
             (
                 'ref: ${{ github.sha }}',
                 'manifest="${archive}.contents"',
+                "sysroot_musl_full_gcc_version:",
+                '-DMUSL_GCC_VERSION="${MUSL_GCC_VERSION}"',
                 "riscv64-unknown-linux-gnu/sysroot/lib/ld-linux-riscv64-lp64d.so.1",
                 "riscv64-unknown-linux-gnu/sysroot/usr/lib64/lp64d/libc.so",
                 "loongarch64-unknown-linux-musl/sysroot/lib/ld-musl-loongarch64.so.1",
@@ -812,17 +824,18 @@ def test_sysroot_thin_keeps_dynamic_and_static_musl_without_gcc_or_cxx(
     module = runner.load_package_script(
         {
             "GCC_VERSION": "15.2.0",
+            "MUSL_GCC_VERSION": "15.2.1",
             "MUSL_SYSROOT_FULL_DIR": str(musl_full_root),
             "__sys_argv__": ["--target", triple],
         }
     )
 
     assert module.sysroot_musl_full.filename == (
-        "sysroot_musl_full-gcc15.2.0.tar.xz"
+        "sysroot_musl_full-gcc15.2.1.tar.xz"
     )
     assert module.sysroot_musl_full.url == (
         "https://github.com/zarraxx/llvm_builder/releases/download/"
-        "sysroot_musl_full-gcc15.2.0/sysroot_musl_full-gcc15.2.0.tar.xz"
+        "sysroot_musl_full-gcc15.2.1/sysroot_musl_full-gcc15.2.1.tar.xz"
     )
 
     module.configure()
