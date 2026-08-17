@@ -8,6 +8,10 @@
 uv run python3 src/BuilderRunner.py packages/sysroot_full.py \
   -DGCC_VERSION=15.2.0
 
+# 整理、验证并打包 GCC/musl sysroot
+uv run python3 src/BuilderRunner.py packages/sysroot_musl_full.py \
+  -DGCC_VERSION=15.2.0
+
 # 构建 compiler-rt builtins（自动下载对应版本的 sysroot_full release）
 uv run python3 src/BuilderRunner.py packages/compiler_rt_builtins.py \
   -DLLVM_VERSION=22.1.8

@@ -97,6 +97,7 @@ class FakeBuilder:
     "package_name",
     [
         "sysroot_full.py",
+        "sysroot_musl_full.py",
         "sysroot_thin.py",
         "compiler_rt_builtins.py",
         "wasi_libc.py",
@@ -569,6 +570,93 @@ def test_sysroot_package_uses_package_name_and_gcc_version(
             "-C",
             runner.package_builder.output_dir,
             "sysroot_full-gcc15.2.0",
+        )
+    ]
+
+
+def test_musl_sysroot_package_builds_unified_layout_and_uses_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project_root = Path(__file__).resolve().parents[1]
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "sysroot_musl_full.py",
+        builder_type=FakeBuilder,
+    )
+    module = runner.load_package_script(
+        {
+            "GCC_VERSION": "15.2.0",
+            "HOST_ARCH": "x86_64",
+            "__sys_argv__": [],
+        }
+    )
+
+    assert module.gcc_musl_full.filename == "gcc-15.2.0-x86_64-linux-musl.tar.xz"
+    assert module.gcc_musl_full.url == (
+        "https://github.com/zarraxx/crosstool-ng/releases/download/"
+        "gcc-musl-15.2.0/gcc-15.2.0-x86_64-linux-musl.tar.xz"
+    )
+    assert len(module.TARGETS) == 8
+    assert "loongarch64-unknown-linux-musl" in module.TARGETS
+    assert all(
+        "mingw" not in triple and not triple.endswith("-gnu")
+        for triple in module.TARGETS
+    )
+
+    for triple in module.TARGETS:
+        origin_root = runner.package_builder.prebuild_dir / f"{triple}-gcc15.2.0"
+        source_prefix = origin_root / triple
+        (source_prefix / "sysroot" / "usr" / "include").mkdir(
+            parents=True, exist_ok=True
+        )
+        (source_prefix / "sysroot" / "usr" / "include" / "stdio.h").write_text(
+            "", encoding="utf-8"
+        )
+        gcc_runtime = origin_root / "lib" / "gcc" / triple / "15.2.0"
+        gcc_runtime.mkdir(parents=True)
+        (gcc_runtime / "libgcc.a").write_text("", encoding="utf-8")
+
+    module.configure()
+    module.build()
+
+    loongarch = "loongarch64-unknown-linux-musl"
+    assert (
+        module.DEST_DIR / loongarch / "sysroot" / "usr" / "include" / "stdio.h"
+    ).is_file()
+    assert (
+        module.DEST_DIR / "lib" / "gcc" / loongarch / "15.2.0" / "libgcc.a"
+    ).is_file()
+
+    target = module.TARGETS[0]
+    short_name = module.TARGET_SHORT_NAMES[target]
+    module.VERIFY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    def fake_cmake_build(cmake_args: list[str], *, build_dir: Path) -> None:
+        runner.package_builder.events.append(("cmake_build", cmake_args, build_dir))
+        for filename in (f"main.{short_name}", f"maincxx.{short_name}"):
+            (module.VERIFY_OUTPUT_DIR / filename).write_text("", encoding="utf-8")
+
+    runner.package_builder.cmake_build = fake_cmake_build
+    module._run_output = lambda *_args: f"hello {short_name}"
+    module._verify_target(target)
+
+    configure_event = runner.package_builder.events[-2]
+    assert configure_event[0] == "cmake_configure"
+    assert f"-DTARGET_TRIPLE={target}" in configure_event[1]
+    assert f"-DSYSROOT_BUNDLE={module.DEST_DIR}" in configure_event[1]
+    assert module.RUNTIME_LIBRARY_PATH.startswith("/lib64:/usr/lib64")
+
+    tar_calls = []
+    monkeypatch.setattr(module.Shell, "tar", lambda *args: tar_calls.append(args))
+    module.package()
+    archive = runner.package_builder.output_dir / ("sysroot_musl_full-gcc15.2.0.tar.xz")
+    assert tar_calls == [
+        (
+            "caf",
+            archive,
+            "-C",
+            runner.package_builder.output_dir,
+            "sysroot_musl_full-gcc15.2.0",
         )
     ]
 
