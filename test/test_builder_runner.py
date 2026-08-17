@@ -353,6 +353,17 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'git push origin "refs/tags/${tag}" --force',
             ),
         ),
+        (
+            "sysroot-musl-release.yml",
+            (
+                'ref: ${{ github.sha }}',
+                'manifest="${archive}.contents"',
+                "loongarch64-unknown-linux-musl/sysroot/usr/include/stdio.h",
+                "lib/gcc/loongarch64-unknown-linux-musl/${GCC_VERSION}/libgcc.a",
+                'git tag --force "${tag}" "${GITHUB_SHA}"',
+                'git push origin "refs/tags/${tag}" --force',
+            ),
+        ),
     ],
 )
 def test_riscv64_workflow_archive_contracts(

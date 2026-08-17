@@ -1,0 +1,127 @@
+name: Build and release musl sysroot
+
+run-name: Build musl sysroot GCC ${{ inputs.gcc_version }} with LLVM ${{ inputs.llvm_version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcc_version:
+        description: GCC version
+        required: true
+        default: 15.2.0
+        type: choice
+        options:
+          - 15.2.0
+      llvm_version:
+        description: LLVM version used to verify the sysroot
+        required: true
+        default: 22.1.8
+        type: choice
+        options:
+          - 22.1.8
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sysroot_musl_full-gcc-${{ inputs.gcc_version }}
+  cancel-in-progress: false
+
+jobs:
+  build-verify-release:
+    name: Build, verify, and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GCC_VERSION: ${{ inputs.gcc_version }}
+      LLVM_VERSION: ${{ inputs.llvm_version }}
+
+    steps:
+      - name: Check out dispatched commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore source archive cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: >-
+            llvm-builder-${{ runner.os }}-musl-gcc-${{ inputs.gcc_version }}-llvm-${{ inputs.llvm_version }}
+
+      - name: Install verification tools
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            cmake \
+            ninja-build \
+            qemu-user \
+            xz-utils
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Build, verify, and package musl sysroot
+        run: |
+          uv run --frozen python3 src/BuilderRunner.py \
+            packages/sysroot_musl_full.py \
+            -DGCC_VERSION="${GCC_VERSION}" \
+            -DLLVM_VERSION="${LLVM_VERSION}" \
+            -DHOST_ARCH=x86_64
+
+      - name: Check release archive
+        run: |
+          archive="dist/sysroot_musl_full-gcc${GCC_VERSION}.tar.xz"
+          archive_root="sysroot_musl_full-gcc${GCC_VERSION}/"
+          manifest="${archive}.contents"
+          test -s "${archive}"
+          xz --test "${archive}"
+          tar -tf "${archive}" > "${manifest}"
+          test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
+          grep -Fqx \
+            "${archive_root}loongarch64-unknown-linux-musl/sysroot/usr/include/stdio.h" \
+            "${manifest}"
+          grep -Fqx \
+            "${archive_root}lib/gcc/loongarch64-unknown-linux-musl/${GCC_VERSION}/libgcc.a" \
+            "${manifest}"
+          sha256sum "${archive}" | tee "${archive}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot_musl_full-gcc${{ inputs.gcc_version }}
+          path: |
+            dist/sysroot_musl_full-gcc${{ inputs.gcc_version }}.tar.xz
+            dist/sysroot_musl_full-gcc${{ inputs.gcc_version }}.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="sysroot_musl_full-gcc${GCC_VERSION}"
+          archive="dist/sysroot_musl_full-gcc${GCC_VERSION}.tar.xz"
+          checksum="${archive}.sha256"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${archive}" "${checksum}" --clobber
+            git tag --force "${tag}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}" --force
+          else
+            gh release create "${tag}" "${archive}" "${checksum}" \
+              --target "${GITHUB_SHA}" \
+              --title "${tag}" \
+              --generate-notes
+          fi
