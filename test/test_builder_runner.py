@@ -208,6 +208,70 @@ def test_compiler_rt_builtins_downloads_sysroot_full_release(tmp_path: Path):
     assert musl_triple in module.MUSL_SYSROOT_TARGETS
 
 
+def test_wasi_libc_downloads_versioned_compiler_rt_builtins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    project_root = Path(__file__).resolve().parents[1]
+    runner = BuilderRunner(
+        workspace=tmp_path,
+        package_file=project_root / "packages" / "wasi_libc.py",
+        builder_type=FakeBuilder,
+        builder_kwargs={"llvm_version": "23.1.2"},
+    )
+    module = runner.load_package_script(
+        {"LLVM_VERSION": "23.1.2", "__sys_argv__": []}
+    )
+
+    dependency = module.compiler_rt_builtins
+    assert dependency.filename == "compiler_rt_builtins-llvm23.1.2.tar.xz"
+    assert dependency.url == (
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "compiler_rt_builtins-llvm23.1.2/"
+        "compiler_rt_builtins-llvm23.1.2.tar.xz"
+    )
+    assert module.COMPILER_RT_BUILTINS_ROOT == (
+        runner.package_builder.prebuild_dir / "compiler_rt_builtins-llvm23.1.2"
+    )
+    assert module.COMPILER_RT_LIB_DIR == (
+        module.COMPILER_RT_BUILTINS_ROOT / "lib" / "clang" / "23" / "lib"
+    )
+
+    source_dir = runner.package_builder.source_dir / "wasi-libc"
+    required_paths = [
+        source_dir / "CMakeLists.txt",
+        module.COMPILER_RT_LIB_DIR
+        / "wasm32-unknown-wasip1"
+        / "libclang_rt.builtins.a",
+        runner.package_builder.clang,
+        runner.package_builder.ar,
+        runner.package_builder.ranlib,
+        runner.package_builder.nm,
+    ]
+    for path in required_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    assert "-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY" in module._cmake_args(
+        "wasm32-wasip1", source_dir
+    )
+
+    tar_calls = []
+    monkeypatch.setattr(module.Shell, "tar", lambda *args: tar_calls.append(args))
+    module.package()
+    archive = (
+        runner.package_builder.output_dir / "wasi-libc-32-llvm-23.1.2.tar.xz"
+    )
+    assert tar_calls == [
+        (
+            "caf",
+            archive,
+            "-C",
+            runner.package_builder.output_dir,
+            "wasi-libc-32-llvm-23.1.2",
+        )
+    ]
+
+
 def test_compiler_rt_builtins_packages_versioned_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -389,6 +453,20 @@ def test_sysroot_thin_riscv64_keeps_default_abi_without_multilib(tmp_path: Path)
                 'manifest="${archive}.contents"',
                 "loongarch64-unknown-linux-musl/sysroot/usr/include/stdio.h",
                 "lib/gcc/loongarch64-unknown-linux-musl/${GCC_VERSION}/libgcc.a",
+                'git tag --force "${tag}" "${GITHUB_SHA}"',
+                'git push origin "refs/tags/${tag}" --force',
+            ),
+        ),
+        (
+            "wasi-libc-release.yml",
+            (
+                "wasi_version:",
+                "llvm_version:",
+                'ref: ${{ github.sha }}',
+                '-DWASI_VERSION="${WASI_VERSION}"',
+                '-DLLVM_VERSION="${LLVM_VERSION}"',
+                'manifest="${archive}.contents"',
+                "wasm32-wasip1 wasm32-wasip2 wasm32-wasip1-threads",
                 'git tag --force "${tag}" "${GITHUB_SHA}"',
                 'git push origin "refs/tags/${tag}" --force',
             ),

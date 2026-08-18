@@ -1,0 +1,123 @@
+name: Build and release wasi-libc
+
+run-name: Build wasi-libc WASI SDK ${{ inputs.wasi_version }} with LLVM ${{ inputs.llvm_version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      wasi_version:
+        description: WASI SDK version
+        required: true
+        default: "32"
+        type: string
+      llvm_version:
+        description: LLVM version
+        required: true
+        default: 22.1.8
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasi-libc-${{ inputs.wasi_version }}-llvm-${{ inputs.llvm_version }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    name: Build and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WASI_VERSION: ${{ inputs.wasi_version }}
+      LLVM_VERSION: ${{ inputs.llvm_version }}
+
+    steps:
+      - name: Check out dispatched commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore source archive cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: >-
+            llvm-builder-${{ runner.os }}-wasi-${{ inputs.wasi_version }}-llvm-${{ inputs.llvm_version }}
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            cmake \
+            ninja-build \
+            xz-utils
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Build and package wasi-libc
+        run: |
+          uv run --frozen python3 src/BuilderRunner.py \
+            packages/wasi_libc.py \
+            -DWASI_VERSION="${WASI_VERSION}" \
+            -DLLVM_VERSION="${LLVM_VERSION}"
+
+      - name: Check release archive
+        run: |
+          bundle="wasi-libc-${WASI_VERSION}-llvm-${LLVM_VERSION}"
+          archive="dist/${bundle}.tar.xz"
+          archive_root="${bundle}/"
+          manifest="${archive}.contents"
+          test -s "${archive}"
+          xz --test "${archive}"
+          tar -tf "${archive}" > "${manifest}"
+          test "$(sed -n '1p' "${manifest}")" = "${archive_root}"
+          for target in wasm32-wasip1 wasm32-wasip2 wasm32-wasip1-threads; do
+            grep -Fqx \
+              "${archive_root}${target}/include/${target}/stdio.h" \
+              "${manifest}"
+            grep -Fqx \
+              "${archive_root}${target}/lib/${target}/libc.a" \
+              "${manifest}"
+          done
+          sha256sum "${archive}" | tee "${archive}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasi-libc-${{ inputs.wasi_version }}-llvm-${{ inputs.llvm_version }}
+          path: |
+            dist/wasi-libc-${{ inputs.wasi_version }}-llvm-${{ inputs.llvm_version }}.tar.xz
+            dist/wasi-libc-${{ inputs.wasi_version }}-llvm-${{ inputs.llvm_version }}.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="wasi-libc-${WASI_VERSION}-llvm-${LLVM_VERSION}"
+          archive="dist/${tag}.tar.xz"
+          checksum="${archive}.sha256"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${archive}" "${checksum}" --clobber
+            git tag --force "${tag}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}" --force
+          else
+            gh release create "${tag}" "${archive}" "${checksum}" \
+              --target "${GITHUB_SHA}" \
+              --title "${tag}" \
+              --generate-notes

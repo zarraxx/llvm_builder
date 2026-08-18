@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
     def source(**kwargs: Any) -> Any: ...
 
+    def prebuild(**kwargs: Any) -> Any: ...
+
 
 WASI_VERSION = str(env("WASI_VERSION", "32"))
 LLVM_VERSION = str(env("LLVM_VERSION", builder.llvm_version))
@@ -28,17 +30,33 @@ TARGETS = (
 
 BUILD_ROOT = builder.build_dir / f"wasi-libc-{WASI_VERSION}-llvm-{LLVM_VERSION}"
 OUTPUT_ROOT = builder.output_dir / f"wasi-libc-{WASI_VERSION}-llvm-{LLVM_VERSION}"
+BUNDLE_DIR_NAME = OUTPUT_ROOT.name
+COMPILER_RT_BUILTINS_ROOT = Path(
+    env(
+        "COMPILER_RT_BUILTINS_ROOT",
+        builder.prebuild_dir / f"compiler_rt_builtins-llvm{LLVM_VERSION}",
+    )
+).resolve()
 COMPILER_RT_LIB_DIR = Path(
     env(
         "COMPILER_RT_LIB_DIR",
-        builder.output_dir
-        / f"compiler_rt_builtins-llvm{builder.llvm_version}"
+        COMPILER_RT_BUILTINS_ROOT
         / "lib"
         / "clang"
-        / builder.llvm_major_version
+        / LLVM_VERSION.split(".")[0]
         / "lib",
     )
 ).resolve()
+
+compiler_rt_builtins = prebuild(
+    name="compiler_rt_builtins",
+    version=LLVM_VERSION,
+    filename_fmt="{{name}}-llvm{{version}}.tar.xz",
+    url_fmt=(
+        "https://github.com/zarraxx/llvm_builder/releases/download/"
+        "{{name}}-llvm{{version}}/{{filename}}"
+    ),
+)
 
 wasi_libc = source(
     name="wasi-libc",
@@ -46,6 +64,8 @@ wasi_libc = source(
     filename_fmt="wasi-sdk-{{version}}.tar.gz",
     url_fmt=("https://github.com/WebAssembly/wasi-libc/archive/refs/tags/{{filename}}"),
 )
+
+
 
 
 def configure() -> None:
@@ -75,6 +95,12 @@ def build() -> None:
 def install() -> None:
     for triple in _selected_targets():
         builder.cmake_install([], build_dir=BUILD_ROOT / triple)
+
+
+def package() -> None:
+    archive = builder.output_dir / f"{BUNDLE_DIR_NAME}.tar.xz"
+    Shell.tar("caf", archive, "-C", builder.output_dir, BUNDLE_DIR_NAME)
+    print(f"Created {archive}")
 
 
 def _selected_targets() -> list[str]:
@@ -121,6 +147,7 @@ def _cmake_args(
         raise FileNotFoundError(f"wasi-libc 构建所需文件不存在:\n{missing}")
 
     cmake_args = [
+        "-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY",
         f"-DCMAKE_C_COMPILER_TARGET={triple}",
         f"-DCMAKE_ASM_COMPILER_TARGET={triple}",
         "-DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE",
