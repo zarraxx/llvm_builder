@@ -121,3 +121,4 @@ jobs:
               --target "${GITHUB_SHA}" \
               --title "${tag}" \
               --generate-notes
+          fi
